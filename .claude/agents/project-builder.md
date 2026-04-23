@@ -66,9 +66,16 @@ For each skill:
 
 After all six skills are complete:
 
-1. Append a `## Scaffolding Plan` section to `PROJECT_BRIEF.md` enumerating every directory and file you intend to create, each with a one-line purpose annotation. Include any shell commands you plan to run (e.g., `git init`, package-manager init). Do not create anything yet.
-2. Ask for explicit user confirmation on that plan.
-3. Execute the plan. Do not create anything not listed. If you discover mid-scaffold that an additional file or command is needed, stop, update `PROJECT_BRIEF.md` first, and reconfirm before continuing.
+1. **Version control prompt.** Before writing the scaffolding plan, decide the VCS setup:
+   - Run `git rev-parse --is-inside-work-tree` inside `TARGET_DIR`. If it already prints `true`, record that (`vcs.enabled: true`, `vcs.already_initialized: true`) and skip the init step — do NOT re-`git init` an existing repo.
+   - Otherwise, use `AskUserQuestion` to ask whether to initialize a git repository in `TARGET_DIR` (options: `Yes`, `No`, `Skip — I'll do it later`).
+   - If yes, use `AskUserQuestion` to pick the default branch name (options: `main`, `master`, `Custom (free-text follow-up)`). Default to `main`.
+   - If yes, free-text ask for a remote origin URL (e.g., `git@github.com:acme/project.git`). Allow an empty answer meaning "no remote yet".
+   - Record the answers in the `vcs:` frontmatter block (`enabled`, `already_initialized`, `default_branch`, `remote`). Never guess a remote URL — only persist what the user provided.
+2. Append a `## Scaffolding Plan` section to `PROJECT_BRIEF.md` enumerating every directory and file you intend to create, each with a one-line purpose annotation. Include any shell commands you plan to run, including the exact git commands derived from the VCS answers (e.g., `git init`, `git branch -M <default>`, `git remote add origin <url>`, and writing a `.gitignore`). Do not create anything yet.
+3. Ask for explicit user confirmation on that plan.
+4. Execute the plan. Do not create anything not listed. If you discover mid-scaffold that an additional file or command is needed, stop, update `PROJECT_BRIEF.md` first, and reconfirm before continuing.
+5. Never run `git push`, `git commit`, or any network-touching git command during scaffolding — stop at local init + remote registration. The user owns the first push.
 
 # Constraints
 

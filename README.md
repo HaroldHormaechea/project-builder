@@ -72,7 +72,6 @@ README.md                                   This file
 
 ## Known limitations
 
-- **Untested end-to-end.** The orchestration is a paper design — it has not been exercised against a real scaffolding or development run. First real use will likely surface tool-semantic issues around `TeamCreate`, `SendMessage`, and `shutdown_request`.
 - **Plaintext brief.** Role agents parse Markdown section headings by match. A renamed or reordered section can be missed. The YAML frontmatter hardens the structured reads, but prose sections remain loosely parsed.
 - **No recovery semantics.** If a spawned agent crashes, times out, or exhausts its context mid-phase, the orchestrator does not recover. The user has to restart the run.
 - **Profile proliferation.** Each profile's description is visible in every agent's context. Adding many profiles over time will grow context noise; there is no pruning strategy today.

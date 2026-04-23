@@ -79,18 +79,24 @@ deployment:
   provider: <string>
   iac: <string>
   environments: [<string>, ...]
+vcs:
+  enabled: <bool>                      # whether the target folder should be a git repo
+  already_initialized: <bool>          # true if TARGET_DIR was already inside a git work tree before scaffolding
+  default_branch: <string>             # e.g. "main"
+  remote: <string>                     # origin URL, or null if none yet
 ---
 ```
 
 **Ownership (which skill writes which fields):**
 
-| Frontmatter field | Skill |
+| Frontmatter field | Skill / step |
 |---|---|
 | `project.*` | `define-overview` |
 | `stack.*`, `build.*` | `define-technologies` |
 | `paths.*` | `define-architecture` |
 | `test.*`, `profiles` | `define-quality-standards` |
 | `deployment.*` | `define-deployment` |
+| `vcs.*` | `project-builder` scaffolding step (not a define-* skill) |
 
 Agents MUST prefer the frontmatter over prose for any structured read. Prose is for context; the frontmatter is the contract. If a field is missing or contradicts the prose, the agent stops and surfaces the mismatch rather than guessing.
 
