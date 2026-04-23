@@ -1,0 +1,8 @@
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local Claude Code overrides — user-specific, not shared
+.claude/settings.local.json
