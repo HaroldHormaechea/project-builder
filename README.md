@@ -75,8 +75,8 @@ README.md                                   This file
 - **Plaintext brief.** Role agents parse Markdown section headings by match. A renamed or reordered section can be missed. The YAML frontmatter hardens the structured reads, but prose sections remain loosely parsed.
 - **No recovery semantics.** If a spawned agent crashes, times out, or exhausts its context mid-phase, the orchestrator does not recover. The user has to restart the run.
 - **Profile proliferation.** Each profile's description is visible in every agent's context. Adding many profiles over time will grow context noise; there is no pruning strategy today.
-- **Spawned agents cannot spawn further agents.** `develop` and `revise-brief` therefore must be invoked from the root Claude Code session, never from within a subagent. The SessionStart hook reinforces this every session.
-- **Scope today.** Structure-only scaffolding plus feature development via the dev-team. Use-case and requirements-driven implementation are not yet covered.
+- **Spawned agents cannot spawn further agents.** All skills in this workspace must be invoked from the root Claude Code session, never from within a subagent. The SessionStart hook reinforces this every session.
+- **No batch use-case mode.** Each use case is a separate `develop` run. Status is tracked in `USE_CASES.md`, but there is no "implement all pending" driver today.
 
 ## License
 
