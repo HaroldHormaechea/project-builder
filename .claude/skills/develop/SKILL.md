@@ -38,6 +38,19 @@ Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not
    - Wait for completion. Confirm `PROJECT_BRIEF.md` now exists in `TARGET_DIR`.
 4. If the user declines to produce a brief, stop — `develop` cannot run without one.
 
+## Step 2b — Resolve the use-case input (optional)
+
+The dev-team can be anchored to a specific use-case file. Resolve `USE_CASE_FILE` (an absolute path inside `TARGET_DIR`, or `null`) before proceeding:
+
+1. **Invoked via the Skill tool from `define-use-case`**: the caller passes the just-saved file path in the invocation arguments. Use it verbatim, confirm it exists, and skip to Step 3.
+2. **Invoked directly by the user without arguments**:
+   - Read the frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. If `use_cases.index` resolves to an existing ledger, list the rows whose `Status` is `pending` or `blocked` and offer them to the user via `AskUserQuestion`, plus a "No use case — free-form task" option.
+   - If the user picks a use case, set `USE_CASE_FILE` to the absolute path of that file.
+   - If the user picks "No use case", set `USE_CASE_FILE = null` and capture the task description from the user as before.
+3. **Invoked by the user with an explicit path**: use it verbatim. Confirm it exists and is inside `<TARGET_DIR>/<use_cases.folder>`; refuse otherwise.
+
+If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as the task description. The file's other sections (acceptance criteria, pitfalls) will be forwarded to the role agents verbatim in Step 5.
+
 ## Step 3 — Describe and confirm
 
 Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
@@ -53,6 +66,8 @@ Briefly describe the phases (Analysis → Challenge → Plan preview → Impleme
 ## Step 5 — Hand off to the orchestrator doc
 
 Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
+
+Pass `USE_CASE_FILE` (the absolute path, or `null`) into the orchestration. The orchestrator spec explains how to forward it to each role and how to update the ledger.
 
 ## Step 6 — Tear down
 

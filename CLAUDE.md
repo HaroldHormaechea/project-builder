@@ -1,10 +1,10 @@
 # Project Builder
 
-> **Orchestration rule — read first.** The `develop` skill and its four-agent team MUST be invoked from the **root Claude Code session**. Spawned subagents cannot spawn further agents, so nested invocation will fail silently or mid-flow. If you ever find yourself inside a subagent and the user asks for `/develop` (or implementation work), stop and tell them to restart at the root session. The same applies to `/revise-brief`.
+> **Orchestration rule — read first.** The `develop` skill and its four-agent team MUST be invoked from the **root Claude Code session**. Spawned subagents cannot spawn further agents, so nested invocation will fail silently or mid-flow. If you ever find yourself inside a subagent and the user asks for `/develop` (or implementation work), stop and tell them to restart at the root session. The same applies to `/revise-brief` and `/define-use-case` (the latter because it may chain into `/develop`).
 
-This workspace hosts three Claude Code entry points that operate on a **target project folder the user chooses**: the `project-builder` subagent (scaffolds a new project), the `develop` skill (builds features via a small agent team), and the `revise-brief` skill (updates an existing brief). Nothing in this workspace is the project itself — it is the tooling that creates and evolves projects.
+This workspace hosts four Claude Code entry points that operate on a **target project folder the user chooses**: the `project-builder` subagent (scaffolds a new project), the `develop` skill (builds features via a small agent team), the `revise-brief` skill (updates an existing brief), and the `define-use-case` skill (captures a single use case as a formalized Markdown file under `<TARGET_DIR>/use-cases/`). Nothing in this workspace is the project itself — it is the tooling that creates and evolves projects.
 
-## Hard rules (both entry points)
+## Hard rules (all entry points)
 
 - Neither entry point may write anywhere inside the folder the current Claude session was launched from (its session working directory). That folder hosts the agent, skills, and team definitions, and is edited by the user directly — never by the spawned agents.
 - Everything — including `PROJECT_BRIEF.md` — is written inside the user-supplied target folder.
@@ -46,6 +46,12 @@ Must be invoked from the root session: spawned subagents cannot spawn further ag
 
 When the user wants to update one or more sections of an existing `PROJECT_BRIEF.md` without re-scaffolding, invoke the `revise-brief` skill from the root session. It picks the sections to refresh, re-runs the matching `define-*` skills via `project-builder`, and keeps the YAML frontmatter in sync.
 
+## Entry point 4 — `define-use-case` (capture a use case)
+
+When the user wants to document what the project should do — one use case at a time — invoke the `define-use-case` skill from the root session. It collects a free-form description, produces a formalized version (summary, acceptance criteria, pitfalls), runs a clarifying-question loop via `AskUserQuestion`, then saves the result as `<TARGET_DIR>/use-cases/<NN>-<slug>.md` with a zero-padded incremental number. After saving, it offers to define another use case or continue to implementation via `develop`.
+
+The skill never modifies `PROJECT_BRIEF.md`. Use cases live alongside the brief, not inside it.
+
 ## `PROJECT_BRIEF.md` schema
 
 Every `PROJECT_BRIEF.md` starts with a YAML frontmatter block that agents read for structured fields. The prose sections below the frontmatter are for humans; the frontmatter is authoritative for machine-read fields.
@@ -84,6 +90,9 @@ vcs:
   already_initialized: <bool>          # true if TARGET_DIR was already inside a git work tree before scaffolding
   default_branch: <string>             # e.g. "main"
   remote: <string>                     # origin URL, or null if none yet
+use_cases:
+  index: <string>                      # relative path from TARGET_DIR to the status ledger, default "USE_CASES.md"
+  folder: <string>                     # relative path from TARGET_DIR to the use-case files, default "use-cases/"
 ---
 ```
 
@@ -97,8 +106,41 @@ vcs:
 | `test.*`, `profiles` | `define-quality-standards` |
 | `deployment.*` | `define-deployment` |
 | `vcs.*` | `project-builder` scaffolding step (not a define-* skill) |
+| `use_cases.*` | `define-use-case` (first invocation in a project) |
 
 Agents MUST prefer the frontmatter over prose for any structured read. Prose is for context; the frontmatter is the contract. If a field is missing or contradicts the prose, the agent stops and surfaces the mismatch rather than guessing.
+
+## Use-case ledger (`USE_CASES.md`)
+
+Every target project that has at least one use case also has a **status ledger** at the path given by `use_cases.index` (default `USE_CASES.md`, living at the root of `TARGET_DIR`). It is a single Markdown file with exactly this shape:
+
+```markdown
+# Use Cases
+
+Status ledger for use cases under `<use_cases.folder>`. Machine-maintained — the `define-use-case` skill appends rows; the dev-team orchestrator updates the `Status` and `Updated` columns as it works. Do not hand-edit those two columns unless you know why; edit the use-case file or re-run the skill instead.
+
+Statuses:
+- `pending` — saved but not yet picked up by the dev-team
+- `in-progress` — the dev-team has started analysis
+- `done` — implementation and tests completed
+- `blocked` — the dev-team escalated (6-round cap hit, user abort, or infeasibility)
+
+| # | File | Title | Status | Updated |
+|---|------|-------|--------|---------|
+| 01 | [use-cases/01-foo.md](use-cases/01-foo.md) | Foo ingestion | pending | 2026-04-24 |
+```
+
+**Write ownership:**
+
+| Part of the ledger | Writer |
+|---|---|
+| File creation + header + column layout | `define-use-case` (first save in a project) |
+| New rows (`#`, `File`, `Title`, initial `Status: pending`, initial `Updated`) | `define-use-case` (every save) |
+| `Status` + `Updated` columns on existing rows | dev-team orchestrator (root session during `develop`) |
+
+Role agents (analyst, challenger, developer, qa) MUST NOT write to the ledger. Their scope is the project codebase; ledger mutation is a single-writer responsibility held by the root session during a `develop` run.
+
+If the ledger is missing when the orchestrator needs to update it (e.g., the use-case file was moved in by hand), the orchestrator stops and escalates — it does not silently create or repair the ledger. Ledger creation belongs to `define-use-case`.
 
 ## Profile skills (opt-in conventions)
 
@@ -125,4 +167,7 @@ If an active profile conflicts with the brief, the brief wins and the agent surf
 
 ## Scope today
 
-Structure-only scaffolding plus feature-development via the dev-team. Use cases and requirements-driven implementation still to come in later iterations of the agents.
+Structure-only scaffolding, use-case capture (one formalized file per use case under `<TARGET_DIR>/use-cases/`), and feature-development via the dev-team. `define-use-case` chains directly into `develop` with the just-saved file as the implementation target, so the single-use-case-to-implementation flow works end-to-end.
+
+Still pending:
+- No batch "implement all pending use cases" mode — each use case is a separate `develop` run. Status tracking makes batch feasible later, but it is not built today.

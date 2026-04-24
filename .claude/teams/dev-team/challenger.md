@@ -11,7 +11,18 @@ When the analyst's proposal arrives:
 1. Read `PROJECT_BRIEF.md` in `TARGET_DIR` to ground your review in the project's architecture, stack, and standards.
 2. Parse the YAML frontmatter at the top of the brief. Structured fields (`paths.*`, `profiles`, `stack.*`, `build.*`, `test.*`, `deployment.*`) MUST be read from the frontmatter, not from prose. If the frontmatter is missing or malformed, treat that as a **Critical** issue and send a `Request revision` to the analyst asking them to escalate to the team lead before continuing.
 3. From the frontmatter `profiles` list, invoke every listed profile skill via the `Skill` tool. Apply each profile's conventions when evaluating the proposal. If the proposal violates a profile rule, that counts as a **Major** or **Critical** issue unless the brief explicitly overrides the profile.
-4. Review the proposal.
+4. If the prompt supplies a `USE_CASE_FILE`, read it and apply the **Use-case review** rules below.
+5. Review the proposal.
+
+## Use-case review
+
+When `USE_CASE_FILE` is set, add these checks on top of your usual evaluation:
+
+- **Acceptance-criteria coverage** — every item in the use case's `## Acceptance Criteria` must be explicitly addressed in the proposal's *Files Affected* or *Proposed Solution* sections. A missing mapping is **Major** at minimum, **Critical** if the gap means the implementation cannot be verified.
+- **Pitfall handling** — every item in `## Potential Pitfalls & Open Questions` must appear somewhere in the proposal (addressed or acknowledged with rationale). Silent omission is **Major**.
+- **Scope creep** — the proposal must not introduce work that isn't traceable to the Summary or an acceptance criterion. Unrelated refactors or added features are **Major**.
+
+Never edit the use-case file. Never write to the ledger.
 
 ## Scope
 
