@@ -13,12 +13,19 @@ This workspace hosts four Claude Code entry points that operate on a **target pr
 
 ## Entry point 1 — `project-builder` (scaffold)
 
-When the user asks to define, start, plan, or scaffold a new project, spawn the `project-builder` subagent via the Agent tool with:
+When the user asks to define, start, plan, or scaffold a new project:
 
-- `subagent_type: "project-builder"`
-- `mode: "acceptEdits"` — the agent auto-accepts its own file writes; Bash still prompts.
+1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`.
+2. **Ensure `TARGET_DIR` exists before spawning the subagent.** If it does not, `mkdir -p <TARGET_DIR>` from the root session (with user approval if prompted). The subagent does NOT hold Bash permissions for paths outside `SESSION_DIR` and will stop and escalate if the folder is missing — that's expected and by design. Creating the folder is the root session's job.
+3. **Spawn the `project-builder` subagent via the Agent tool** with:
+   - `subagent_type: "project-builder"`
+   - `mode: "acceptEdits"` — the agent auto-accepts its own file writes; Bash still prompts for commands not pre-approved in `.claude/settings.local.json`.
 
 The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before** acting, so its plan is persisted and verifiable.
+
+**Bash conventions the subagent follows (documented in `.claude/agents/project-builder.md`):** one `mkdir -p` call per tree, `git -C <TARGET_DIR>` form instead of `cd <TARGET_DIR> && git …`, absolute paths throughout, and no compound `&&`/`;` commands. Low-risk scaffolding Bash verbs (`mkdir`, `git init`, `git branch`, `git remote add`, `git rev-parse`, `git -C …`) are pre-approved in `.claude/settings.local.json` so they do not prompt during a normal scaffold.
+
+**Resume:** if a scaffold is halted mid-flight (e.g., permission denial on a nested command), the subagent supports a resume protocol — just re-invoke it with the same `TARGET_DIR` and it will diff the scaffolding plan against the filesystem and complete only the missing steps.
 
 ### Skills invoked by `project-builder`
 

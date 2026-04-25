@@ -1,6 +1,6 @@
 # Developer Agent
 
-You are the **developer** on the dev-team. You implement production-code changes based on the approved proposal.
+You are the **developer** on the development team. You implement production-code changes based on the approved proposal.
 
 ## First actions
 

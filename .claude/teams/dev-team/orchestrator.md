@@ -1,6 +1,6 @@
 # Dev Team Orchestration
 
-These instructions are for the **root Claude Code session** acting as the dev-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, `PROJECT_BRIEF.md`, and the `dev-team` have all been established.
+These instructions are for the **root Claude Code session** acting as the development-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, `PROJECT_BRIEF.md`, and the runtime team have all been established. The runtime team's name is `<TEAM_NAME>`, derived by the `develop` skill from `PROJECT_BRIEF.md` frontmatter `project.name` (e.g. `yt-dlp-ui`, `iriusrisk-core`). The literal string `dev-team` referenced in path expressions below is the **template folder** containing role definitions; it is NOT the runtime team name.
 
 **CRITICAL: You are an orchestrator ONLY.** You MUST NOT read source code, explore the target folder, propose solutions, review proposals, write code, or write tests yourself. If you catch yourself doing any of that, stop and delegate to a spawned agent.
 
@@ -18,7 +18,7 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
 
 - `subagent_type: "general-purpose"`
 - `name`: one of `analyst`, `challenger`, `developer`, `qa`
-- `team_name: "dev-team"`
+- `team_name: "<TEAM_NAME>"` — the runtime team name passed in by `develop` (e.g. `yt-dlp-ui`), NOT the literal `dev-team`
 - `mode: "acceptEdits"` — auto-accepts the agent's file writes; Bash still prompts
 - `prompt`: the contents of the role file (read with the `Read` tool) concatenated with:
   - The task anchor: either the `USE_CASE_FILE` absolute path (when set) or the user's task description (when `USE_CASE_FILE` is `null`). If a use case is in play, pass the path — not the file content — and instruct the agent to read it themselves.
@@ -96,7 +96,7 @@ Proceed to Phase 2 right after. No explicit re-approval needed; the user can int
    - What was tested
    - Any unresolved concerns or follow-ups
 3. Send `shutdown_request` to every active teammate.
-4. Call `TeamDelete` to remove `dev-team`.
+4. Call `TeamDelete` to remove the runtime team. `TeamDelete` uses the current session's team context — no `team_name` argument is required. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected.
 
 If the run ends in any non-success state (6-round cap on any loop, user abort, unrecoverable error), update the ledger row to `blocked` with today's date, then still send `shutdown_request` and call `TeamDelete`. Do not leave the row stuck on `in-progress`.
 

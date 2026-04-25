@@ -26,7 +26,7 @@ Before invoking any skill:
    - `TARGET_DIR` is inside `SESSION_DIR` (i.e., `SESSION_DIR` is a path-segment prefix of `TARGET_DIR`).
    - `SESSION_DIR` is inside `TARGET_DIR` (would make you write over the agent/skills themselves).
    Use a path-segment comparison, not raw string prefix, so `/foo/bar` is not considered a prefix of `/foo/barbaz`.
-4. If `TARGET_DIR` does not exist, offer to create it (`mkdir -p`).
+4. `TARGET_DIR` MUST already exist when you are invoked. The root session is responsible for creating it before spawning you (see CLAUDE.md). If the folder does not exist, STOP immediately and emit a single-line escalation message asking the root session to `mkdir -p <TARGET_DIR>` and re-invoke you. Do not attempt to create it yourself — you do not hold Bash permissions for paths outside `SESSION_DIR`, and silent retries waste turns.
 5. If `TARGET_DIR` is non-empty, list its top-level contents and ask the user whether to proceed in place, pick a subfolder, or abort.
 6. If `PROJECT_BRIEF.md` already exists in `TARGET_DIR`, read it, parse the YAML frontmatter, detect which skill sections are present, and offer options: continue from the next missing skill, re-run a specific skill (replacing its section), or start over (with explicit confirmation).
 7. If you were invoked by the `revise-brief` skill with a list of specific skills to re-run, honor that list exactly. Re-run only those skills. Leave all other prose sections and all frontmatter fields owned by other skills untouched. Do NOT run the scaffolding step in revise mode.
@@ -67,15 +67,35 @@ For each skill:
 After all six skills are complete:
 
 1. **Version control prompt.** Before writing the scaffolding plan, decide the VCS setup:
-   - Run `git rev-parse --is-inside-work-tree` inside `TARGET_DIR`. If it already prints `true`, record that (`vcs.enabled: true`, `vcs.already_initialized: true`) and skip the init step — do NOT re-`git init` an existing repo.
+   - Run `git -C <TARGET_DIR> rev-parse --is-inside-work-tree`. If it prints `true`, record that (`vcs.enabled: true`, `vcs.already_initialized: true`) and skip the init step — do NOT re-`git init` an existing repo.
    - Otherwise, use `AskUserQuestion` to ask whether to initialize a git repository in `TARGET_DIR` (options: `Yes`, `No`, `Skip — I'll do it later`).
    - If yes, use `AskUserQuestion` to pick the default branch name (options: `main`, `master`, `Custom (free-text follow-up)`). Default to `main`.
    - If yes, free-text ask for a remote origin URL (e.g., `git@github.com:acme/project.git`). Allow an empty answer meaning "no remote yet".
    - Record the answers in the `vcs:` frontmatter block (`enabled`, `already_initialized`, `default_branch`, `remote`). Never guess a remote URL — only persist what the user provided.
-2. Append a `## Scaffolding Plan` section to `PROJECT_BRIEF.md` enumerating every directory and file you intend to create, each with a one-line purpose annotation. Include any shell commands you plan to run, including the exact git commands derived from the VCS answers (e.g., `git init`, `git branch -M <default>`, `git remote add origin <url>`, and writing a `.gitignore`). Do not create anything yet.
+2. Append a `## Scaffolding Plan` section to `PROJECT_BRIEF.md` enumerating every directory and file you intend to create, each with a one-line purpose annotation. Include any shell commands you plan to run, including the exact git commands derived from the VCS answers (e.g., `git -C <TARGET_DIR> init -b <default>`, `git -C <TARGET_DIR> remote add origin <url>`, and writing a `.gitignore`). Do not create anything yet.
 3. Ask for explicit user confirmation on that plan.
 4. Execute the plan. Do not create anything not listed. If you discover mid-scaffold that an additional file or command is needed, stop, update `PROJECT_BRIEF.md` first, and reconfirm before continuing.
 5. Never run `git push`, `git commit`, or any network-touching git command during scaffolding — stop at local init + remote registration. The user owns the first push.
+
+## Bash command conventions (scaffolding)
+
+To avoid spurious permission prompts and security warnings, follow these conventions for every Bash call during scaffolding:
+
+- **Directory creation**: use a single `mkdir -p` per tree (Bash) — never a chain like `mkdir -p a && mkdir -p b`. One flat `mkdir -p path1 path2 path3 …` call is cheapest. Alternatively, the `Write` tool may create parent directories implicitly when writing files; prefer `Write` for any leaf path that will hold a file, and use `mkdir -p` only for otherwise-empty directories that must exist for tooling recognition (and drop a `.gitkeep` into those).
+- **Git operations**: always use the `git -C <TARGET_DIR> <subcommand>` form. Never `cd <TARGET_DIR> && git …` — the `cd`+`git` chain trips Claude Code's security heuristics and forces a permission prompt on every call.
+- **Path resolution**: prefer absolute paths throughout. If the user gives a relative path, resolve it once up front (e.g. `realpath <path>` or `python3 -c 'import os,sys;print(os.path.abspath(sys.argv[1]))' <path>`) and then use the absolute path for every subsequent call. Do not prepend `cd` to other commands.
+- **Compound commands**: avoid chaining unrelated Bash commands with `&&` or `;` inside a single call. One logical operation per Bash call keeps the permission model auditable and survives mid-chain failures cleanly.
+
+## Scaffold resume protocol
+
+If you are re-invoked after a scaffold was partially executed (i.e., `PROJECT_BRIEF.md` is complete, the `## Scaffolding Plan` section is present, and `TARGET_DIR` contains *some* of the listed files but not all):
+
+1. Do not re-run any `define-*` skill.
+2. Do not rewrite `PROJECT_BRIEF.md` unless you discover a field that needs correction.
+3. Diff the scaffolding plan against the filesystem: list expected paths vs. existing paths. Existing files are assumed correct (do not overwrite without user consent).
+4. Execute only the missing steps, in the same order the plan specifies.
+5. Run the VCS init step last, and only if `.git` does not already exist in `TARGET_DIR`.
+6. Report what was resumed, what was skipped, and what was newly created — distinctly.
 
 # Constraints
 

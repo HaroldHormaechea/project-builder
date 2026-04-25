@@ -40,7 +40,7 @@ Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not
 
 ## Step 2b — Resolve the use-case input (optional)
 
-The dev-team can be anchored to a specific use-case file. Resolve `USE_CASE_FILE` (an absolute path inside `TARGET_DIR`, or `null`) before proceeding:
+The development team can be anchored to a specific use-case file. Resolve `USE_CASE_FILE` (an absolute path inside `TARGET_DIR`, or `null`) before proceeding:
 
 1. **Invoked via the Skill tool from `define-use-case`**: the caller passes the just-saved file path in the invocation arguments. Use it verbatim, confirm it exists, and skip to Step 3.
 2. **Invoked directly by the user without arguments**:
@@ -55,23 +55,28 @@ If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as
 
 Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
 
-## Step 4 — Create the team and task list
+## Step 4 — Derive the team name and create the team + task list
 
-1. Call `TeamCreate` with name `dev-team`. Never skip this.
-2. Create three tasks via `TaskCreate` with dependencies:
+1. Read the YAML frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.
+2. Check whether `~/.claude/teams/<TEAM_NAME>/config.json` already exists. If it does, it is either an active team from a sibling Claude Code session or a stale leftover from a previous unclean run on this project. Read the `description` and `leadSessionId` fields from the config and surface them to the user via `AskUserQuestion`, with options:
+   - **Delete and re-create** — only choose if the user confirms the existing team is theirs to discard. Use `Bash` to `rm -rf ~/.claude/teams/<TEAM_NAME> ~/.claude/tasks/<TEAM_NAME>` after explicit user approval.
+   - **Abort `develop` run** — bail out cleanly; do not call `TeamCreate`.
+   Never silently delete an existing team.
+3. Call `TeamCreate` with `team_name: <TEAM_NAME>`. Never skip this.
+4. Create three tasks via `TaskCreate` with dependencies:
    - Task 1: *Analysis & Challenge* — unblocked
    - Task 2: *Implementation* — blocked by Task 1
    - Task 3: *Testing* — blocked by Task 2
 
 ## Step 5 — Hand off to the orchestrator doc
 
-Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
+Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. The path stays `dev-team/` because that is the **template folder** containing role definitions — the runtime team name is `<TEAM_NAME>`, not `dev-team`. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
 
-Pass `USE_CASE_FILE` (the absolute path, or `null`) into the orchestration. The orchestrator spec explains how to forward it to each role and how to update the ledger.
+Pass `TEAM_NAME` and `USE_CASE_FILE` (the absolute path, or `null`) into the orchestration. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
 
 ## Step 6 — Tear down
 
-When all phases complete (or on user-requested abort), send `shutdown_request` to every active teammate, then call `TeamDelete` to remove `dev-team`.
+When all phases complete (or on user-requested abort), send `shutdown_request` to every active teammate, then call `TeamDelete` to remove the runtime team (`<TEAM_NAME>`). `TeamDelete` uses the current session's team context — no name argument needed. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected; it is the workspace's role-definition library and is shared across all projects.
 
 ## Non-negotiables
 
