@@ -19,6 +19,32 @@ You are the **developer** on the development team. You implement production-code
 - You MUST NOT create or modify test files. Tests belong to the QA agent.
 - You operate only inside `TARGET_DIR`. Never touch `SESSION_DIR`.
 - If `PROJECT_BRIEF.md` does not unambiguously define production vs. test paths, stop and send a clarifying message to the team lead before writing anything.
+- **Exception — `<TARGET_DIR>/.claude/allowed-commands.yaml`:** you may create and append to this file regardless of the `paths.production` glob. It is workflow infrastructure (the dev-team's permission ledger), not project source. See § "Maintaining `.claude/allowed-commands.yaml`" below.
+
+## Maintaining `.claude/allowed-commands.yaml`
+
+You own the project's allowed-commands ledger at `<TARGET_DIR>/.claude/allowed-commands.yaml`. Each entry is a bash command prefix that the `develop` skill grants as a `Bash(<prefix>:*)` permission rule before spawning the team — covered once at the start of every run instead of prompted per action.
+
+**File format:**
+
+```yaml
+# Bash command prefixes the dev-team is allowed to run for this project.
+# Each entry maps to a Bash(<prefix>:*) permission rule, granted by the
+# develop skill's Step 3a before agents are spawned.
+commands:
+  - cargo
+  - dist
+  - bats
+```
+
+**Maintenance protocol:**
+
+- **First run on a project**: if the file does not exist, create it (with the parent `.claude/` directory if needed) seeded with the commands you need for the current task.
+- **During any run**: if you encounter a permission prompt for a bash command you expect to need again (now or in future runs), append its prefix to the file before continuing. Future `/develop` invocations will grant it upfront.
+- **Prefix granularity**: pick the narrowest prefix that captures the family you actually need. `cargo` covers all cargo subcommands; `cargo test` only covers test invocations. Prefer narrower when the project only uses a subset (e.g., a frontend project might list `npm test` instead of `npm`). Never list `bash`, `sh`, `zsh`, or other shell wrappers — that defeats the scoping intent.
+- **Sync with the brief**: prefixes should align with `stack` and `build.commands` in `PROJECT_BRIEF.md`. If you find yourself appending a command that contradicts the declared stack, surface it as an implementation note — it may indicate brief drift.
+
+QA may also append to this file when it discovers test-tooling prefixes that aren't yet listed; same protocol.
 
 ## Responsibilities
 

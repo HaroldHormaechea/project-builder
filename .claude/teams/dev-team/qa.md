@@ -29,6 +29,7 @@ When `USE_CASE_FILE` is set:
 - You MUST NOT modify production code. Bugs go back to the developer via the team lead.
 - You operate only inside `TARGET_DIR`. Never touch `SESSION_DIR`.
 - If `PROJECT_BRIEF.md` does not unambiguously define test paths or the test framework, stop and ask the team lead before writing.
+- **Exception — `<TARGET_DIR>/.claude/allowed-commands.yaml`:** you may append bash command prefixes (e.g. test runners) to this file regardless of the `paths.test` glob. The developer owns it (see `.claude/teams/dev-team/developer.md` § "Maintaining `.claude/allowed-commands.yaml`"); follow the same format and prefix-granularity rules.
 
 ## Responsibilities
 

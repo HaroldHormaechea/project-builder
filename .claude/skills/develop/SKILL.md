@@ -61,29 +61,31 @@ Before spawning agents (which will perform many file writes and bash invocations
 
 **Procedure:**
 
-1. Build the candidate rule set, with `<TARGET_DIR>` substituted to its absolute path (no trailing slash):
-   - `Edit(//<TARGET_DIR>/**)`
-   - `Write(//<TARGET_DIR>/**)`
-   - `Read(//<TARGET_DIR>/**)`
-   - `Bash(<TARGET_DIR>/:*)` — execute any binary or script under target with any args
-   - `Bash(git -C <TARGET_DIR>:*)` — git scoped via the `-C` form (matches the bash convention already enforced by `project-builder.md`)
+1. Compose the candidate rule set, with `<TARGET_DIR>` substituted to its absolute path (no trailing slash):
+   - **a. TARGET_DIR scope (always):**
+     - `Edit(//<TARGET_DIR>/**)`
+     - `Write(//<TARGET_DIR>/**)`
+     - `Read(//<TARGET_DIR>/**)`
+     - `Bash(<TARGET_DIR>/:*)` — execute any binary or script under target with any args
+     - `Bash(git -C <TARGET_DIR>:*)` — git scoped via the `-C` form (matches the bash convention already enforced by `project-builder.md`)
+   - **b. Project commands (loaded from `<TARGET_DIR>/.claude/allowed-commands.yaml` if present):** the file's `commands:` array contains bash command prefixes the dev-team needs (e.g. `cargo`, `dist`, `bats`). Map each entry `<cmd>` to a rule `Bash(<cmd>:*)`. If the file is missing or has no `commands:` key, this set is empty. The developer agent maintains this file across runs (see `.claude/teams/dev-team/developer.md` § "Maintaining `.claude/allowed-commands.yaml`"); QA may also append.
 
 2. Read `<SESSION_DIR>/.claude/settings.local.json` (treat missing-file or missing-keys as `{"permissions":{"allow":[]}}`). Compute the subset of candidate rules NOT already present in `permissions.allow`.
 
 3. If the subset is empty, skip the prompt and proceed to Step 4 — nothing to add.
 
 4. Otherwise, ask the user via `AskUserQuestion`:
-   - Question: `Grant blanket Edit/Write/Read/Bash/git permissions scoped to <TARGET_DIR> for this session? Avoids per-action prompts during the agent run; scoped to that folder only.`
-   - List the missing rules verbatim in the question body so the user sees exactly what is being added.
+   - Question: `Grant the following permissions to <SESSION_DIR>/.claude/settings.local.json for this run? TARGET_DIR-scoped Edit/Write/Read/Bash/git plus project commands declared by the dev team. Avoids per-action prompts.`
+   - List the missing rules verbatim in the question body, grouped under "TARGET_DIR scope" and "Project commands", so the user sees exactly what is being added.
    - Options:
-     - **Yes — grant scoped permissions** (Recommended)
+     - **Yes — grant all** (Recommended)
      - **No — keep prompting per action**
 
 5. If Yes: append the missing rules to `permissions.allow`, preserving every existing rule. Write the updated JSON back with 2-space indent. Confirm to the user with a one-line summary (`added N rule(s) to .claude/settings.local.json`).
 
 6. If No: proceed without changes. Do not re-prompt within this run.
 
-The step is idempotent: re-running on a project where the rules already exist results in no prompt and no write. The user can also extend the rule set manually for stack-specific commands (`cargo`, `npm`, `gradle`, etc.) — those are deliberately NOT auto-added because they are not directory-scoped at the matcher level.
+The step is idempotent: re-running on a project where the rules already exist results in no prompt and no write. To add more commands, the developer agent appends to `<TARGET_DIR>/.claude/allowed-commands.yaml` during the run; the next `/develop` invocation picks them up automatically.
 
 ## Step 4 — Derive the team name and create the team + task list
 
