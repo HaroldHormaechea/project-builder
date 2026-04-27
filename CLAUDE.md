@@ -17,7 +17,8 @@ When the user asks to define, start, plan, or scaffold a new project:
 
 1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`.
 2. **Ensure `TARGET_DIR` exists before spawning the subagent.** If it does not, `mkdir -p <TARGET_DIR>` from the root session (with user approval if prompted). The subagent does NOT hold Bash permissions for paths outside `SESSION_DIR` and will stop and escalate if the folder is missing — that's expected and by design. Creating the folder is the root session's job.
-3. **Spawn the `project-builder` subagent via the Agent tool** with:
+3. **Grant TARGET_DIR-scoped permissions (recommended).** Before spawning, prompt the user via `AskUserQuestion` to add blanket Edit/Write/Read/Bash/git permissions scoped to `<TARGET_DIR>` to `<SESSION_DIR>/.claude/settings.local.json`. Without this, scaffolding accumulates per-bash-command prompts. The exact rule set, the idempotency check, and the JSON-edit procedure are documented in `.claude/skills/develop/SKILL.md` § "Step 3a — Grant TARGET_DIR-scoped permissions"; both entry points use the same routine. Permissions are scoped to the target folder only.
+4. **Spawn the `project-builder` subagent via the Agent tool** with:
    - `subagent_type: "project-builder"`
    - `mode: "acceptEdits"` — the agent auto-accepts its own file writes; Bash still prompts for commands not pre-approved in `.claude/settings.local.json`.
 
@@ -171,6 +172,7 @@ If an active profile conflicts with the brief, the brief wins and the agent surf
 
 - Normal sessions in this workspace run with `defaultMode: "default"` — no blanket auto-accept. You can freely edit the agent and skill definitions as a normal user of this session; prompts behave as in any Claude Code project.
 - Broader permissions apply **only** to the `project-builder` subagent, and only because it is invoked with `mode: "acceptEdits"`. The parent session is unaffected.
+- **TARGET_DIR-scoped grant (runtime, opt-in).** Both entry points (`project-builder` Entry Point 1 step 3, and `develop` skill Step 3a) prompt the user once at the start of a run to add blanket Edit/Write/Read/Bash/git permissions scoped to the chosen `TARGET_DIR` to `.claude/settings.local.json`. The grant is per-target and additive; it does not loosen permissions for any other folder. The single source of truth for the rule set, the idempotency check, and the JSON-edit procedure is `.claude/skills/develop/SKILL.md` § "Step 3a". The `revise-brief` and `define-use-case` flows inherit the grant transitively (they spawn `project-builder` or `develop`, which run the routine).
 
 ## Scope today
 

@@ -55,6 +55,36 @@ If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as
 
 Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
 
+## Step 3a — Grant TARGET_DIR-scoped permissions (recommended)
+
+Before spawning agents (which will perform many file writes and bash invocations inside `TARGET_DIR`), prompt the user once to add blanket scoped permissions for that folder to `<SESSION_DIR>/.claude/settings.local.json`. Without this, agent runs accumulate dozens of per-action permission prompts. Permissions are scoped to the target folder only — nothing else on disk is affected.
+
+**Procedure:**
+
+1. Build the candidate rule set, with `<TARGET_DIR>` substituted to its absolute path (no trailing slash):
+   - `Edit(//<TARGET_DIR>/**)`
+   - `Write(//<TARGET_DIR>/**)`
+   - `Read(//<TARGET_DIR>/**)`
+   - `Bash(<TARGET_DIR>/:*)` — execute any binary or script under target with any args
+   - `Bash(git -C <TARGET_DIR>:*)` — git scoped via the `-C` form (matches the bash convention already enforced by `project-builder.md`)
+
+2. Read `<SESSION_DIR>/.claude/settings.local.json` (treat missing-file or missing-keys as `{"permissions":{"allow":[]}}`). Compute the subset of candidate rules NOT already present in `permissions.allow`.
+
+3. If the subset is empty, skip the prompt and proceed to Step 4 — nothing to add.
+
+4. Otherwise, ask the user via `AskUserQuestion`:
+   - Question: `Grant blanket Edit/Write/Read/Bash/git permissions scoped to <TARGET_DIR> for this session? Avoids per-action prompts during the agent run; scoped to that folder only.`
+   - List the missing rules verbatim in the question body so the user sees exactly what is being added.
+   - Options:
+     - **Yes — grant scoped permissions** (Recommended)
+     - **No — keep prompting per action**
+
+5. If Yes: append the missing rules to `permissions.allow`, preserving every existing rule. Write the updated JSON back with 2-space indent. Confirm to the user with a one-line summary (`added N rule(s) to .claude/settings.local.json`).
+
+6. If No: proceed without changes. Do not re-prompt within this run.
+
+The step is idempotent: re-running on a project where the rules already exist results in no prompt and no write. The user can also extend the rule set manually for stack-specific commands (`cargo`, `npm`, `gradle`, etc.) — those are deliberately NOT auto-added because they are not directory-scoped at the matcher level.
+
 ## Step 4 — Derive the team name and create the team + task list
 
 1. Read the YAML frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.
