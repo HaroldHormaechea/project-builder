@@ -1,21 +1,22 @@
 # project-builder
 
-A Claude Code workspace that scaffolds and evolves other software projects. Not a framework or a library — a set of subagents, skills, and team definitions that a Claude Code session exposes when it runs inside this folder.
+A Claude Code workspace for starting new software projects, capturing what they should do as use cases, and building them one feature at a time.
 
-## What it does
+This is the tooling — not a project itself. Every action runs against a **target folder you choose**; nothing is written inside this repo.
 
-Three entry points, all operating on a **target folder you choose** — this repository itself is off-limits to the spawned agents:
+## What you can do
 
-- **`project-builder` subagent** — runs a deterministic interview (overview, monetization, technologies, architecture, quality standards, deployment), writes a `PROJECT_BRIEF.md` with a YAML frontmatter contract, then scaffolds the project structure.
-- **`develop` skill** — orchestrates a four-agent team (analyst, challenger, developer, QA) with peer review and role-scoped writes to implement features against an existing project.
-- **`revise-brief` skill** — updates one or more sections of an existing brief without re-scaffolding.
+Four things, all from a Claude Code session running in this folder:
 
-Stack-neutral by default. Stack- or tool-specific conventions live in opt-in **profile skills** under `.claude/skills/profile-*`, activated per project by listing them in `PROJECT_BRIEF.md` → `profiles:`.
+- **Scaffold a new project.** Claude walks you through overview, monetization, tech stack, architecture, quality standards, and deployment, then writes a `PROJECT_BRIEF.md` and creates the initial project structure.
+- **Capture use cases.** One Markdown file per use case under `<your-project>/use-cases/`, with a summary, acceptance criteria, and pitfalls. Claude asks clarifying questions before saving. After saving, it can chain straight into building the feature.
+- **Build features.** A four-agent team (analyst, challenger, developer, QA) implements a saved use case, a feature, a bug fix, or a refactor in your target project.
+- **Refresh the brief.** Update sections of an existing `PROJECT_BRIEF.md` (e.g., new deployment target, swapped tech) without re-scaffolding.
 
 ## Requirements
 
 - macOS or Linux
-- [Claude Code](https://claude.com/claude-code) installed and authenticated
+- [Claude Code](https://claude.com/claude-code) installed and signed in
 - Git
 
 ## Quick start
@@ -26,57 +27,62 @@ cd project-builder
 claude
 ```
 
-Then, from the Claude Code session:
+Then ask Claude what you want to do:
 
-- Scaffold a new project — ask Claude to "scaffold a new project in `/absolute/path/to/target`". The `project-builder` subagent takes over.
-- Build a feature in an existing project that has a `PROJECT_BRIEF.md` — run `/develop` and point it at your target folder.
-- Refresh sections of an outdated brief — run `/revise-brief`.
+| To... | Say something like... |
+|---|---|
+| Scaffold a new project | "scaffold a new project in `/absolute/path/to/target`" |
+| Capture a use case | `/define-use-case` (or "define a use case in `/abs/path`") |
+| Build a feature | `/develop` (or "implement X in `/abs/path`") |
+| Refresh the brief | `/revise-brief` |
 
-The authoritative rules (orchestration constraints, frontmatter schema, profile precedence) live in `CLAUDE.md` and are auto-loaded by Claude every session.
+Claude takes it from there. Everything is written into your target folder, never into this repo.
 
-## Profiles included
+## Files Claude creates in your project
 
-- `profile-java-database-access` — DTO projections over entity queries, bulk over iterative, parameterized queries only, Hibernate as the JPA implementation.
-- `profile-java-server-architecture` — Gradle, Spring Boot, and Java LTS versions fetched at scaffold time; repositories return DTOs only; internal DTOs never leak to the API boundary; strict Controller/Job → Facade → Service → Repository call chain with the transaction owned by the facade.
-- `profile-aws-deployment` — AWS as the preferred provider. Every AWS-based suggestion must include a cost table with per-service daily / monthly / yearly figures and cumulative totals across new and pre-existing services. Prices are fetched at runtime: Vantage first for EC2, RDS, and ElastiCache; official AWS pricing pages as fallback.
+- `PROJECT_BRIEF.md` — source of truth for what the project is and how it's built.
+- `use-cases/01-...md`, `use-cases/02-...md`, ... — one file per use case, numbered in order.
+- `USE_CASES.md` — status ledger tracking each use case as `pending`, `in-progress`, `done`, or `blocked`.
 
-To add a profile, drop a `SKILL.md` under `.claude/skills/profile-<name>/` with a description that explicitly says "only invoke when listed in `PROJECT_BRIEF.md`'s profiles list", then list it in a project's brief to activate it.
+## Profiles (opt-in conventions)
+
+Profiles are opinionated rule sets for specific stacks. They activate per-project by listing them in `PROJECT_BRIEF.md` → `profiles:`. Available today:
+
+- **`profile-java-database-access`** — DTO projections, parameterized queries, Hibernate.
+- **`profile-java-server-architecture`** — Gradle, Spring Boot, Java LTS; strict Controller → Facade → Service → Repository layering; repositories return DTOs only.
+- **`profile-aws-deployment`** — AWS-first; every suggestion includes a per-service cost estimation table.
+
+To add your own, drop a `SKILL.md` under `.claude/skills/profile-<name>/` and list it in any project's brief to activate it.
 
 ## Project layout
 
 ```
-CLAUDE.md                                   Authoritative rules loaded by Claude at session start
+CLAUDE.md                                   Rules Claude loads at session start
 README.md                                   This file
-.gitignore
 .claude/
-  settings.json                             Session defaults and SessionStart hook
-  hooks/session-start.sh                    Reminder injected into the model's context each session
-  agents/project-builder.md                 Scaffolding subagent definition
+  agents/project-builder.md                 Scaffolding subagent
   skills/
-    define-overview/                        Scaffold interview — overview
-    define-monetization/                    Scaffold interview — monetization
-    define-technologies/                    Scaffold interview — tech stack
-    define-architecture/                    Scaffold interview — architecture
-    define-quality-standards/               Scaffold interview — quality, testing, profiles opt-in
-    define-deployment/                      Scaffold interview — prod and dev deployment
-    develop/                                Dev-team entry point
-    revise-brief/                           Brief-evolution entry point
-    write-readme/                           README generation skill for scaffolded projects
-    profile-java-database-access/           Opt-in profile
-    profile-java-server-architecture/       Opt-in profile
-    profile-aws-deployment/                 Opt-in profile
+    define-overview / define-monetization /
+    define-technologies / define-architecture /
+    define-quality-standards / define-deployment    Scaffold interview steps
+    define-use-case                                 Use-case capture
+    develop                                         Dev-team entry point
+    revise-brief                                    Brief-update entry point
+    write-readme                                    README generation for scaffolded projects
+    profile-java-database-access /
+    profile-java-server-architecture /
+    profile-aws-deployment                          Opt-in stack profiles
   teams/dev-team/
-    orchestrator.md                         Root-session orchestration instructions
-    analyst.md / challenger.md / developer.md / qa.md
+    orchestrator.md                                 How the dev-team is run
+    analyst.md / challenger.md / developer.md / qa.md   Role definitions
 ```
 
 ## Known limitations
 
-- **Plaintext brief.** Role agents parse Markdown section headings by match. A renamed or reordered section can be missed. The YAML frontmatter hardens the structured reads, but prose sections remain loosely parsed.
-- **No recovery semantics.** If a spawned agent crashes, times out, or exhausts its context mid-phase, the orchestrator does not recover. The user has to restart the run.
-- **Profile proliferation.** Each profile's description is visible in every agent's context. Adding many profiles over time will grow context noise; there is no pruning strategy today.
-- **Spawned agents cannot spawn further agents.** All skills in this workspace must be invoked from the root Claude Code session, never from within a subagent. The SessionStart hook reinforces this every session.
-- **No batch use-case mode.** Each use case is a separate `develop` run. Status is tracked in `USE_CASES.md`, but there is no "implement all pending" driver today.
+- **No automatic recovery.** If a spawned agent crashes or runs out of context, you restart the run.
+- **No batch use-case mode.** Each use case is built in its own `/develop` run. `USE_CASES.md` tracks status, but there's no "implement all pending" command yet.
+- **Profile cost.** Every active profile adds context to every session — there's no pruning today.
+- **Loose Markdown parsing.** Agents read `PROJECT_BRIEF.md` prose by section heading; renaming or reordering can break reads. The YAML frontmatter at the top of the brief is more robust.
 
 ## License
 
