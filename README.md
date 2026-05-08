@@ -16,28 +16,61 @@ Four things, all from a Claude Code session running in this folder:
 ## How it works
 
 ```mermaid
-flowchart TD
-    user(["You — <code>claude</code> session in this repo"])
+%%{init: {'theme':'base', 'themeVariables': {'background':'#f4f4f4','edgeLabelBackground':'transparent'}}}%%
+flowchart TB
 
-    user --> pb["<b>project-builder</b><br/>scaffold a new project"]
-    user --> uc["<b>define-use-case</b><br/>capture one use case"]
-    user --> dev["<b>develop</b><br/>analyst → challenger →<br/>developer → qa"]
-    user --> rb["<b>revise-brief</b><br/>refresh sections of the brief"]
+    subgraph p0 ["<b>0. The ask</b>"]
+      user(["You: <i>'create me a project that…'</i>"])
+    end
 
-    pb -->|writes| td
-    uc -->|writes| td
-    dev -->|writes| td
-    rb -->|edits| td
+    p0 --> p1
 
-    td[("<b>TARGET_DIR</b> — your project<br/>PROJECT_BRIEF.md · use-cases/NN-*.md ·<br/>USE_CASES.md · code")]
+    subgraph p1 ["<b>1. Scaffolding</b> &nbsp;<i>(project-builder)</i>"]
+      direction TB
+      interview1["Claude interviews you:<br/>overview · monetization · tech ·<br/>architecture · quality · deployment"]
+      interview1 --> brief[("<b>PROJECT_BRIEF.md</b><br/>+ folder structure<br/>+ optional <code>git init</code>")]
+    end
 
-    classDef entry fill:#eef,stroke:#557,stroke-width:1px,color:#000;
-    classDef target fill:#efe,stroke:#575,stroke-width:1px,color:#000;
-    classDef root fill:#fee,stroke:#755,stroke-width:1px,color:#000;
-    class user root;
-    class pb,uc,dev,rb entry;
-    class td target;
+    p1 --> p2
+
+    subgraph build_loop [" "]
+      direction LR
+
+      subgraph p2 ["<b>2. Define use cases</b> &nbsp;<i>(/define-use-case)</i>"]
+        direction TB
+        interview2["Claude asks clarifying questions:<br/>summary · acceptance criteria · pitfalls"]
+        interview2 --> ucfile[("<b>use-cases/NN-*.md</b><br/>row added to <b>USE_CASES.md</b>")]
+      end
+
+      subgraph p3 ["<b>3. Develop them</b> &nbsp;<i>(/develop)</i>"]
+        direction TB
+        analyst(analyst) <-->|peer loop| challenger(challenger)
+        challenger -->|approved plan| developer(developer)
+        developer <-->|fix loop| qa(qa)
+        qa --> code[("code in your project<br/>USE_CASES.md row → <code>done</code>")]
+      end
+
+      p2 --> p3
+      p3 -.->|next feature| p2
+    end
+
+    classDef start fill:#fee,stroke:#755,stroke-width:1px,color:#000;
+    classDef step fill:#eef,stroke:#557,stroke-width:1px,color:#000;
+    classDef artifact fill:#efe,stroke:#575,stroke-width:1px,color:#000;
+    classDef agent fill:#fef,stroke:#757,stroke-width:1px,color:#000;
+    class user start;
+    class interview1,interview2 step;
+    class brief,ucfile,code artifact;
+    class analyst,challenger,developer,qa agent;
+
+    style p0 fill:#ffffff,stroke:#666,stroke-width:1.5px;
+    style p1 fill:#ffffff,stroke:#666,stroke-width:1.5px;
+    style p2 fill:#ffffff,stroke:#666,stroke-width:1.5px;
+    style p3 fill:#ffffff,stroke:#666,stroke-width:1.5px;
+    style build_loop fill:none,stroke:none;
 ```
+
+Steps 2 and 3 also work standalone on a project that already has a `PROJECT_BRIEF.md`. Use `/revise-brief` to update brief sections (new deployment target, swapped tech) without re-scaffolding.
 
 This repo holds the agents and skills; nothing is written into it. Every action targets a folder you supply, and `PROJECT_BRIEF.md` (plus `USE_CASES.md` once you start capturing use cases) is the contract the agents read on each run.
 
