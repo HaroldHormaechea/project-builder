@@ -13,6 +13,34 @@ Four things, all from a Claude Code session running in this folder:
 - **Build features.** A four-agent team (analyst, challenger, developer, QA) implements a saved use case, a feature, a bug fix, or a refactor in your target project.
 - **Refresh the brief.** Update sections of an existing `PROJECT_BRIEF.md` (e.g., new deployment target, swapped tech) without re-scaffolding.
 
+## How it works
+
+```mermaid
+flowchart TD
+    user(["You — <code>claude</code> session in this repo"])
+
+    user --> pb["<b>project-builder</b><br/>scaffold a new project"]
+    user --> uc["<b>define-use-case</b><br/>capture one use case"]
+    user --> dev["<b>develop</b><br/>analyst → challenger →<br/>developer → qa"]
+    user --> rb["<b>revise-brief</b><br/>refresh sections of the brief"]
+
+    pb -->|writes| td
+    uc -->|writes| td
+    dev -->|writes| td
+    rb -->|edits| td
+
+    td[("<b>TARGET_DIR</b> — your project<br/>PROJECT_BRIEF.md · use-cases/NN-*.md ·<br/>USE_CASES.md · code")]
+
+    classDef entry fill:#eef,stroke:#557,stroke-width:1px,color:#000;
+    classDef target fill:#efe,stroke:#575,stroke-width:1px,color:#000;
+    classDef root fill:#fee,stroke:#755,stroke-width:1px,color:#000;
+    class user root;
+    class pb,uc,dev,rb entry;
+    class td target;
+```
+
+This repo holds the agents and skills; nothing is written into it. Every action targets a folder you supply, and `PROJECT_BRIEF.md` (plus `USE_CASES.md` once you start capturing use cases) is the contract the agents read on each run.
+
 ## Requirements
 
 - macOS or Linux
