@@ -81,7 +81,7 @@ This repo holds the agents and skills; nothing is written into it. Every action 
 
 ## Requirements
 
-- macOS or Linux
+- macOS, Linux, or Windows
 - [Claude Code](https://claude.com/claude-code) installed and signed in
 - Git
 
@@ -152,4 +152,4 @@ README.md                                   This file
 
 ## License
 
-Not yet licensed.
+MIT. See [LICENSE](LICENSE). Use it as-is, fork it, template it, modify it. Attribution appreciated, not required.
