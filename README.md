@@ -16,57 +16,62 @@ Four things, all from a Claude Code session running in this folder:
 ## How it works
 
 ```mermaid
-%%{init: {'theme':'base', 'themeVariables': {'background':'#f4f4f4','edgeLabelBackground':'transparent'}}}%%
+%%{init: {'theme':'base','themeVariables':{'edgeLabelBackground':'#eeeeee'}}}%%
 flowchart TB
 
-    subgraph p0 ["<b>0. The ask</b>"]
-      user(["You: <i>'create me a project that…'</i>"])
-    end
+    subgraph all [" "]
 
-    p0 --> p1
-
-    subgraph p1 ["<b>1. Scaffolding</b> &nbsp;<i>(project-builder)</i>"]
-      direction TB
-      interview1["Claude interviews you:<br/>overview · monetization · tech ·<br/>architecture · quality · deployment"]
-      interview1 --> brief[("<b>PROJECT_BRIEF.md</b><br/>+ folder structure<br/>+ optional <code>git init</code>")]
-    end
-
-    p1 --> p2
-
-    subgraph build_loop [" "]
-      direction LR
-
-      subgraph p2 ["<b>2. Define use cases</b> &nbsp;<i>(/define-use-case)</i>"]
-        direction TB
-        interview2["Claude asks clarifying questions:<br/>summary · acceptance criteria · pitfalls"]
-        interview2 --> ucfile[("<b>use-cases/NN-*.md</b><br/>row added to <b>USE_CASES.md</b>")]
+      subgraph p0 ["<b>0. The ask</b>"]
+        user(["You: <i>'create me a project that…'</i>"])
       end
 
-      subgraph p3 ["<b>3. Develop them</b> &nbsp;<i>(/develop)</i>"]
+      p0 --> p1
+
+      subgraph p1 ["<b>1. Scaffolding</b> &nbsp;<i>(project-builder)</i>"]
         direction TB
-        analyst(analyst) <-->|peer loop| challenger(challenger)
-        challenger -->|approved plan| developer(developer)
-        developer <-->|fix loop| qa(qa)
-        qa --> code[("code in your project<br/>USE_CASES.md row → <code>done</code>")]
+        interview1["Claude interviews you:<br/>overview · monetization · tech ·<br/>architecture · quality · deployment"]
+        interview1 --> brief[("<b>PROJECT_BRIEF.md</b><br/>+ folder structure<br/>+ optional <code>git init</code>")]
       end
 
-      p2 --> p3
-      p3 -.->|next feature| p2
+      p1 --> p2
+
+      subgraph build_loop [" "]
+        direction LR
+
+        subgraph p2 ["<b>2. Define use cases</b> &nbsp;<i>(/define-use-case)</i>"]
+          direction TB
+          interview2["Claude asks clarifying questions:<br/>summary · acceptance criteria · pitfalls"]
+          interview2 --> ucfile[("<b>use-cases/NN-*.md</b><br/>row added to <b>USE_CASES.md</b>")]
+        end
+
+        subgraph p3 ["<b>3. Develop them</b> &nbsp;<i>(/develop)</i>"]
+          direction TB
+          analyst(analyst) <-->|peer loop| challenger(challenger)
+          challenger -->|approved plan| developer(developer)
+          developer <-->|fix loop| qa(qa)
+          qa --> code[("code in your project<br/>USE_CASES.md row → <code>done</code>")]
+        end
+
+        p2 --> p3
+        p3 -.->|next feature| p2
+      end
+
     end
 
-    classDef start fill:#fee,stroke:#755,stroke-width:1px,color:#000;
-    classDef step fill:#eef,stroke:#557,stroke-width:1px,color:#000;
-    classDef artifact fill:#efe,stroke:#575,stroke-width:1px,color:#000;
-    classDef agent fill:#fef,stroke:#757,stroke-width:1px,color:#000;
+    classDef start fill:#ffe5e5,stroke:#755,stroke-width:1px,color:#000;
+    classDef step fill:#e5e5ff,stroke:#557,stroke-width:1px,color:#000;
+    classDef artifact fill:#e5ffe5,stroke:#575,stroke-width:1px,color:#000;
+    classDef agent fill:#f5e5f5,stroke:#757,stroke-width:1px,color:#000;
     class user start;
     class interview1,interview2 step;
     class brief,ucfile,code artifact;
     class analyst,challenger,developer,qa agent;
 
-    style p0 fill:#ffffff,stroke:#666,stroke-width:1.5px;
-    style p1 fill:#ffffff,stroke:#666,stroke-width:1.5px;
-    style p2 fill:#ffffff,stroke:#666,stroke-width:1.5px;
-    style p3 fill:#ffffff,stroke:#666,stroke-width:1.5px;
+    style all fill:#ffffff,stroke:#444,stroke-width:1.5px,color:#000;
+    style p0 fill:#eeeeee,stroke:#666,stroke-width:1px,color:#000;
+    style p1 fill:#eeeeee,stroke:#666,stroke-width:1px,color:#000;
+    style p2 fill:#eeeeee,stroke:#666,stroke-width:1px,color:#000;
+    style p3 fill:#eeeeee,stroke:#666,stroke-width:1px,color:#000;
     style build_loop fill:none,stroke:none;
 ```
 
