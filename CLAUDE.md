@@ -4,6 +4,16 @@
 
 This workspace hosts four Claude Code entry points that operate on a **target project folder the user chooses**: the `project-builder` subagent (scaffolds a new project), the `develop` skill (builds features via a small agent team), the `revise-brief` skill (updates an existing brief), and the `define-use-case` skill (captures a single use case as a formalized Markdown file under `<TARGET_DIR>/use-cases/`). Nothing in this workspace is the project itself — it is the tooling that creates and evolves projects.
 
+## Permissions prompt behaviour
+
+Before showing the Step 3a permissions grant prompt (in `develop`, `revise-brief`, or any entry point), check whether the session is running with `--dangerously-skip-permissions`:
+
+```
+ps aux | grep "claude.*dangerously-skip-permissions" | grep -v grep
+```
+
+If the command returns output, **skip Step 3a entirely** — bypass permissions mode already auto-approves every tool call, so prompting the user to update `.claude/settings.local.json` is redundant. Proceed directly to the next step.
+
 ## Hard rules (all entry points)
 
 - Neither entry point may write anywhere inside the folder the current Claude session was launched from (its session working directory). That folder hosts the agent, skills, and team definitions, and is edited by the user directly — never by the spawned agents.

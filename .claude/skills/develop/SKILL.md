@@ -57,7 +57,11 @@ Briefly describe the phases (Analysis → Challenge → Plan preview → Impleme
 
 ## Step 3a — Grant TARGET_DIR-scoped permissions (recommended)
 
-Before spawning agents (which will perform many file writes and bash invocations inside `TARGET_DIR`), prompt the user once to add blanket scoped permissions for that folder to `<SESSION_DIR>/.claude/settings.local.json`. Without this, agent runs accumulate dozens of per-action permission prompts. Permissions are scoped to the target folder only — nothing else on disk is affected.
+Before spawning agents (which will perform many file writes and bash invocations inside `TARGET_DIR`), first invoke the `check-permissions-mode` skill via the `Skill` tool.
+
+If it reports bypass permissions is **ON**, **skip this entire step** — bypass permissions mode auto-approves every tool call, so adding rules to `settings.local.json` is unnecessary. Proceed directly to Step 4.
+
+Otherwise, prompt the user once to add blanket scoped permissions for that folder to `<SESSION_DIR>/.claude/settings.local.json`. Without this, agent runs accumulate dozens of per-action permission prompts. Permissions are scoped to the target folder only — nothing else on disk is affected.
 
 **Procedure:**
 
