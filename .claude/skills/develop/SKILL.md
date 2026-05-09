@@ -25,7 +25,7 @@ Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not
 ## Step 1 — Resolve session and target folders
 
 1. Run `pwd` via Bash to get `SESSION_DIR`. Do not hardcode this path; always resolve it fresh.
-2. Ask the user for the target project folder (`TARGET_DIR`) as an absolute path. Resolve relative paths with `cd <path> && pwd` and confirm.
+2. Ask the user for the target project folder (`TARGET_DIR`) as an absolute path. Derive a default suggestion by computing the parent of `SESSION_DIR` and appending a project-name placeholder: `<parent-of-SESSION_DIR>/<project-name>` (e.g., `/workspace/my-project` when `SESSION_DIR` is `/workspace/project-builder`). Present this default explicitly. Resolve relative paths with `cd <path> && pwd` and confirm.
 3. Refuse and re-ask if `TARGET_DIR` equals, contains, or is contained by `SESSION_DIR` (path-segment comparison — `/foo/bar` is not a prefix of `/foo/barbaz`).
 4. If `TARGET_DIR` does not exist, abort. Offer to scaffold a new project via `project-builder` first.
 

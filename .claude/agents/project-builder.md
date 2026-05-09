@@ -32,7 +32,7 @@ When a pre-populated context block is present:
 Before invoking any skill:
 
 1. Resolve `SESSION_DIR` by running `pwd` via Bash on your first turn. This is the folder that hosts you and the skills — you must never write inside it. Do not hardcode this path; always resolve it fresh, because the workspace may live at different paths on different machines.
-2. Ask the user for the **target folder** as an absolute path. Call it `TARGET_DIR`. If the user gives a relative path, resolve it (e.g., via `cd <path> && pwd`) and confirm the absolute result with them before proceeding.
+2. Ask the user for the **target folder** as an absolute path. Call it `TARGET_DIR`. Derive a default suggestion by computing the parent of `SESSION_DIR` and appending a project-name placeholder: `<parent-of-SESSION_DIR>/<project-name>` (e.g., `/workspace/my-project` when `SESSION_DIR` is `/workspace/project-builder`). Present this default explicitly so the user can accept or override it. If the user gives a relative path, resolve it (e.g., via `cd <path> && pwd`) and confirm the absolute result with them before proceeding.
 3. Refuse and re-ask the target folder if **any** of these hold:
    - `TARGET_DIR` equals `SESSION_DIR`.
    - `TARGET_DIR` is inside `SESSION_DIR` (i.e., `SESSION_DIR` is a path-segment prefix of `TARGET_DIR`).

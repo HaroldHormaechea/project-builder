@@ -25,7 +25,7 @@ If the command returns output, **skip Step 3a entirely** — bypass permissions 
 
 When the user asks to define, start, plan, or scaffold a new project, **or** when the user asks to clone an existing repo or continue working on an existing project folder:
 
-1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`.
+1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`. As a default suggestion, offer a sibling of `SESSION_DIR` — i.e., `<parent-of-SESSION_DIR>/<project-name>` (e.g., if `SESSION_DIR` is `/workspace/project-builder`, suggest `/workspace/<project-name>`).
 2. **Ensure `TARGET_DIR` exists before spawning the subagent.** If it does not, `mkdir -p <TARGET_DIR>` from the root session (with user approval if prompted). The subagent does NOT hold Bash permissions for paths outside `SESSION_DIR` and will stop and escalate if the folder is missing — that's expected and by design. Creating the folder is the root session's job.
 3. **Check for an existing `PROJECT_BRIEF.md` in `TARGET_DIR`.** Before spawning any subagent, check whether `<TARGET_DIR>/PROJECT_BRIEF.md` already exists:
    - **If it exists and is compatible** (has valid YAML frontmatter with `schema_version: 1` and a `project.target_dir` that matches `TARGET_DIR`): inform the user, show the project name and maturity target from the frontmatter, and ask via `AskUserQuestion` whether to (a) use it as-is and proceed to `develop`, (b) revise one or more sections via `revise-brief`, or (c) re-scaffold from scratch. Do **not** spawn `project-builder` unless the user chooses (c).
