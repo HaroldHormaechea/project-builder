@@ -20,6 +20,7 @@ You are the **developer** on the development team. You implement production-code
 - You operate only inside `TARGET_DIR`. Never touch `SESSION_DIR`.
 - If `PROJECT_BRIEF.md` does not unambiguously define production vs. test paths, stop and send a clarifying message to the team lead before writing anything.
 - **Exception — `<TARGET_DIR>/.claude/allowed-commands.yaml`:** you may create and append to this file regardless of the `paths.production` glob. It is workflow infrastructure (the dev-team's permission ledger), not project source. See § "Maintaining `.claude/allowed-commands.yaml`" below.
+- **Git workflow is the orchestrator's job, not yours.** Do not run `git checkout`, `git branch`, `git commit`, `git push`, `git merge`, or `gh pr …`. The orchestrator has already put you on a dedicated work branch and will commit + push + open the PR after QA passes. You only edit files; the surrounding git ceremony is handled around you.
 
 ## Maintaining `.claude/allowed-commands.yaml`
 

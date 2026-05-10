@@ -70,6 +70,22 @@ Before Phase 2, present the approved plan to the user:
 
 Proceed to Phase 2 right after. No explicit re-approval needed; the user can interrupt.
 
+## Pre-implementation — Branching
+
+Before spawning the developer in Phase 2, put the work on its own branch. New code MUST NOT land directly on the project's default branch.
+
+1. Read the `vcs` block from `<TARGET_DIR>/PROJECT_BRIEF.md` frontmatter. If `vcs.enabled` is `false` or the field is missing, skip this step entirely — there is no git repo to branch in.
+2. Derive `WORK_BRANCH`:
+   - When `USE_CASE_FILE` is set: take the filename stem (e.g. `01-foo` from `01-foo.md`) and prefix with `feat/uc-` → `feat/uc-01-foo`.
+   - Otherwise: derive a short kebab-case slug from the task description (lowercase, `[a-z0-9-]`, ≤40 chars) and prefix with `feat/` → e.g. `feat/cache-eviction-fix`.
+   - If `git -C <TARGET_DIR> rev-parse --verify <branch>` succeeds (branch already exists), append `-2`, `-3`, … until unique.
+3. Switch to the project's default branch and create the new branch from there:
+   - `git -C <TARGET_DIR> checkout <vcs.default_branch>`
+   - `git -C <TARGET_DIR> checkout -b <WORK_BRANCH>`
+4. If either checkout fails (dirty working tree, missing default branch, etc.), stop and surface the error to the user. Do not try to clean up the tree yourself — the user's uncommitted state is theirs to manage.
+
+Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches during Phase 2 or Phase 3 — every developer/QA round happens on `WORK_BRANCH`.
+
 ## Phase 2 — Implementation
 
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/developer.md`.
@@ -91,14 +107,24 @@ Proceed to Phase 2 right after. No explicit re-approval needed; the user can int
 ## Completion
 
 1. If `USE_CASE_FILE` is set, update its ledger row to `done` with today's date.
-2. Present a final summary to the user:
+2. **Ship the work** (only when `vcs.enabled` is `true`; otherwise skip this entire step):
+   1. Stage the dev-team's changes and create a single commit on `WORK_BRANCH`. Match the repo's existing commit style — check `git -C <TARGET_DIR> log --oneline -20` for tone. Use a HEREDOC for multi-line messages. Never `--amend`, never `--no-verify`, never bypass hooks.
+   2. Push the branch: `git -C <TARGET_DIR> push -u origin <WORK_BRANCH>`.
+   3. **If the project is on GitHub** — `vcs.remote` contains `github.com` and `gh --version` succeeds — open a pull request:
+      - Inspect recent PRs with `gh pr list --limit 5` (run with `cwd: <TARGET_DIR>`) to follow the repo's title/body conventions.
+      - Run `gh pr create --base <vcs.default_branch> --head <WORK_BRANCH> --title "<short>" --body "<summary>"` from `<TARGET_DIR>`. Title under 70 chars; body summarizes what was implemented and what was tested. Use a HEREDOC for the body.
+      - Print the PR URL to the user.
+      - **NEVER merge the PR.** Do not run `gh pr merge`. Do not pass `--auto`, `--squash`, `--rebase`, `--merge`, or any other flag that closes or auto-merges. Merging requires explicit per-PR authorization from the user — wait for them to ask.
+   4. **If the project is git-tracked but not on GitHub**: stop after the push. Report the pushed branch name to the user and let them open a PR / MR themselves on whatever forge they use.
+3. Present a final summary to the user:
    - What was implemented
    - What was tested
+   - The branch name and PR URL (if applicable)
    - Any unresolved concerns or follow-ups
-3. Send `shutdown_request` to every active teammate.
-4. Call `TeamDelete` to remove the runtime team. `TeamDelete` uses the current session's team context — no `team_name` argument is required. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected.
+4. Send `shutdown_request` to every active teammate.
+5. Call `TeamDelete` to remove the runtime team. `TeamDelete` uses the current session's team context — no `team_name` argument is required. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected.
 
-If the run ends in any non-success state (6-round cap on any loop, user abort, unrecoverable error), update the ledger row to `blocked` with today's date, then still send `shutdown_request` and call `TeamDelete`. Do not leave the row stuck on `in-progress`.
+If the run ends in any non-success state (6-round cap on any loop, user abort, unrecoverable error), update the ledger row to `blocked` with today's date, then still send `shutdown_request` and call `TeamDelete`. Do not leave the row stuck on `in-progress`. Do not push or open a PR for a blocked run — the work is incomplete by definition.
 
 ## Orchestrator rules
 

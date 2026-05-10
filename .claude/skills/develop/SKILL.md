@@ -72,6 +72,10 @@ Otherwise, prompt the user once to add blanket scoped permissions for that folde
      - `Read(//<TARGET_DIR>/**)`
      - `Bash(<TARGET_DIR>/:*)` — execute any binary or script under target with any args
      - `Bash(git -C <TARGET_DIR>:*)` — git scoped via the `-C` form (matches the bash convention already enforced by `project-builder.md`)
+     - `Bash(gh pr create:*)` — open a PR at Completion when the remote is GitHub
+     - `Bash(gh pr view:*)`, `Bash(gh pr list:*)` — read-only PR inspection (style-match recent PRs, surface the new PR URL)
+     - `Bash(gh auth status:*)` — verify gh is authenticated before attempting `pr create`
+     - Note the deliberate omissions: `gh pr merge`, `gh pr close`, and `gh pr edit` are NOT included. Merging or closing a PR requires explicit per-PR user authorization (see `.claude/teams/dev-team/orchestrator.md` § "Completion").
    - **b. Project commands (loaded from `<TARGET_DIR>/.claude/allowed-commands.yaml` if present):** the file's `commands:` array contains bash command prefixes the dev-team needs (e.g. `cargo`, `dist`, `bats`). Map each entry `<cmd>` to a rule `Bash(<cmd>:*)`. If the file is missing or has no `commands:` key, this set is empty. The developer agent maintains this file across runs (see `.claude/teams/dev-team/developer.md` § "Maintaining `.claude/allowed-commands.yaml`"); QA may also append.
 
 2. Read `<SESSION_DIR>/.claude/settings.local.json` (treat missing-file or missing-keys as `{"permissions":{"allow":[]}}`). Compute the subset of candidate rules NOT already present in `permissions.allow`.
