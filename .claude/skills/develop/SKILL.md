@@ -95,6 +95,49 @@ Otherwise, prompt the user once to add blanket scoped permissions for that folde
 
 The step is idempotent: re-running on a project where the rules already exist results in no prompt and no write. To add more commands, the developer agent appends to `<TARGET_DIR>/.claude/allowed-commands.yaml` during the run; the next `/develop` invocation picks them up automatically.
 
+## Step 3b — Provision the Java call-graph tool (when profile is active)
+
+Skip this step entirely unless `PROJECT_BRIEF.md` → frontmatter `profiles` list contains `profile-java-call-graph-tool`. The full contract this step honours is in `.claude/skills/profile-java-call-graph-tool/SKILL.md` — read it once before running the procedure below.
+
+When the profile IS active, run the following before Step 4:
+
+1. **Resolve cache directory.** Pick the per-OS path:
+   - Linux / Unix: `${XDG_CACHE_HOME:-$HOME/.cache}/project-builder/java-class-call-scanning/`
+   - macOS: `$HOME/Library/Caches/project-builder/java-class-call-scanning/`
+   - Windows: `%LOCALAPPDATA%\project-builder\java-class-call-scanning\`
+
+2. **Resolve the latest release.** `WebFetch https://api.github.com/repos/HaroldHormaechea/java-class-call-scanning/releases?per_page=1`. Parse the first entry's `tag_name` (e.g. `v0.1.1`) and the asset whose `name` is `java-class-call-scanning.jar` — its `browser_download_url` is the file to fetch. Do NOT use `/releases/latest` — every release today is marked `prerelease: true` and `/latest` excludes those (currently 404s).
+
+3. **Ensure the jar is cached.** Target path: `<cache-dir>/<tag-name>/java-class-call-scanning.jar`. If it exists and has non-zero size, reuse it. Otherwise `mkdir -p <cache-dir>/<tag-name>` and download via `curl -fsSL -o <target-path> <browser_download_url>`. On failure: surface the error to the user, fall back to the most recent already-cached version if any, otherwise stop and ask the user to resolve connectivity.
+
+4. **Resolve TARGET_DIR's compiled-classes and source paths.** Read `PROJECT_BRIEF.md` frontmatter:
+   - If the brief has a `tooling.java_call_graph` block with `classpath` and `src` lists, use those verbatim (interpret each entry as relative to `TARGET_DIR`).
+   - Otherwise, infer from `build.tool`:
+     - `gradle` → classpath `build/classes/java/main`, `build/classes/java/test`; src `src/main/java`, `src/test/java`
+     - `maven` → classpath `target/classes`, `target/test-classes`; src `src/main/java`, `src/test/java`
+     - any other value → stop and escalate to the user; do not guess.
+
+5. **Build the project so the daemon has bytecode to scan.** Use the brief's declared build for compile-only output:
+   - `gradle` → `./gradlew build -x test` from `TARGET_DIR`
+   - `maven` → `mvn -DskipTests test-compile` from `TARGET_DIR`
+   If the brief defines `tooling.java_call_graph.build`, use that command verbatim instead. If the build fails, surface the failure and stop — this is not a tool problem to mask.
+
+6. **Verify the inferred classpath paths exist** under `TARGET_DIR` after the build. If any do not, stop and escalate — the brief's build.tool likely does not match the actual project layout.
+
+7. **Write or update `<TARGET_DIR>/.mcp.json`.** Add a `mcpServers.java-class-call-scanning` entry with the exact shape documented in `profile-java-call-graph-tool/SKILL.md` § "MCP server registration", filling in the cached jar's absolute path and the resolved classpath/src absolute paths. If the file does not exist, create it with `{"mcpServers": {...}}`. If it exists and already has a `java-class-call-scanning` entry that matches the resolved paths, leave it untouched. If it has a `java-class-call-scanning` entry with different paths, surface the conflict to the user and stop — do not silently overwrite.
+
+8. **Inform the user about the session-restart caveat — concrete wording.** Emit a short note to the user, with these three points called out explicitly so they can act on them:
+
+   > Provisioned `java-class-call-scanning` <tag> at `<cached-jar-path>` and wrote the MCP entry to `<TARGET_DIR>/.mcp.json`.
+   >
+   > **This run uses the CLI fallback** — Claude Code loads MCP servers at session start, so the new entry is not live in the current session. Role agents will invoke the same nine operations against the cached jar over bash/TCP; results are identical to the MCP path, just one extra subprocess per query.
+   >
+   > **The MCP path will be ready on your next session.** If you'd prefer MCP tools for subsequent `/develop` runs (cleaner tool-use traces, no per-query bash hop), start a fresh Claude Code session inside `<TARGET_DIR>` — the entry in `.mcp.json` is loaded automatically. Current run continues as-is; no restart needed now.
+
+   Then surface the cached jar's absolute path so the orchestrator and spawned agents have it.
+
+9. **Forward the cached jar path to the orchestrator.** Hold the absolute path of the cached jar as `JAVA_CALL_GRAPH_JAR`. The orchestrator (Step 5) will include it in each agent's spawn prompt so the agents know where to find the binary when falling back to CLI mode.
+
 ## Step 4 — Derive the team name and create the team + task list
 
 1. Read the YAML frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.

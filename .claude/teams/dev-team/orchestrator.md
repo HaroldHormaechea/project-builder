@@ -27,6 +27,7 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
   - If `USE_CASE_FILE` is set: a directive to read it immediately after the brief and treat its `## Summary` as the task, its `## Acceptance Criteria` as the verifiable contract, and its `## Potential Pitfalls & Open Questions` as items to address explicitly in their output
   - A hard prohibition on writing anywhere outside `TARGET_DIR` (and specifically nothing inside `SESSION_DIR`)
   - A hard prohibition on writing to the use-case ledger (`<TARGET_DIR>/<use_cases.index>`): ledger writes are the orchestrator's sole responsibility
+  - If `profile-java-call-graph-tool` is active and `develop` Step 3b ran: the absolute path of the cached jar as `JAVA_CALL_GRAPH_JAR`, with a note that the agent should use the MCP tools prefixed `mcp__java-class-call-scanning__` when present and fall back to the CLI surface against `JAVA_CALL_GRAPH_JAR` otherwise — see the profile SKILL.md for per-role usage
 
 Always read the role file with `Read` before spawning — do not guess or paraphrase role content.
 

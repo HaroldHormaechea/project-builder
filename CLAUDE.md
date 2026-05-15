@@ -180,6 +180,7 @@ If an active profile conflicts with the brief, the brief wins and the agent surf
 
 - `profile-java-database-access` — DTO projections over entity queries; bulk over iterative; parameterized queries only; Hibernate as JPA implementation.
 - `profile-java-server-architecture` — Gradle (latest stable), Spring Boot (latest stable), Java (latest LTS); repositories return DTOs only; internal DTOs never cross the API boundary; strict Controller/Job → Facade → Service → Repository call chain with transactions owned by the facade.
+- `profile-java-call-graph-tool` — Provisions the `java-class-call-scanning` bytecode call-graph analyzer for the dev-team. `develop` Step 3b downloads the latest release jar to a per-user cache and writes an MCP server entry to `<TARGET_DIR>/.mcp.json`; agents use the nine query operations (find-callers, find-callees, methods-in-class, methods-at-line, find-field-readers, find-field-writers, impact-of-diff, tests-for-diff, refresh-index) either through MCP tools (when the session loaded the `.mcp.json`) or through the CLI surface against the cached jar.
 - `profile-aws-deployment` — AWS as the preferred cloud provider; every AWS-based suggestion must include a cost estimation table (per-service daily / monthly / yearly, with cumulative totals across new and pre-existing services).
 
 ## Permissions model
