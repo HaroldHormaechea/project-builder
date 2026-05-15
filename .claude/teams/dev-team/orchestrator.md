@@ -79,10 +79,14 @@ Before spawning the developer in Phase 2, put the work on its own branch. New co
    - When `USE_CASE_FILE` is set: take the filename stem (e.g. `01-foo` from `01-foo.md`) and prefix with `feat/uc-` → `feat/uc-01-foo`.
    - Otherwise: derive a short kebab-case slug from the task description (lowercase, `[a-z0-9-]`, ≤40 chars) and prefix with `feat/` → e.g. `feat/cache-eviction-fix`.
    - If `git -C <TARGET_DIR> rev-parse --verify <branch>` succeeds (branch already exists), append `-2`, `-3`, … until unique.
-3. Switch to the project's default branch and create the new branch from there:
+3. Switch to the project's default branch and sync it with origin before cutting the work branch — the local default branch may be stale (e.g., another sibling branch was just merged on the remote), and a stale base means the work branch starts from old code:
    - `git -C <TARGET_DIR> checkout <vcs.default_branch>`
+   - **If `vcs.remote` is set** (non-null, indicating an origin exists):
+     - `git -C <TARGET_DIR> fetch origin`
+     - `git -C <TARGET_DIR> merge --ff-only origin/<vcs.default_branch>`
+     - If the fast-forward fails because the local default branch has diverged from origin (local commits not yet on remote, or non-linear history), STOP and surface the error to the user. Do NOT rebase, reset, force-pull, or otherwise rewrite history — the user's local commits are theirs to manage. Resume after they reconcile.
    - `git -C <TARGET_DIR> checkout -b <WORK_BRANCH>`
-4. If either checkout fails (dirty working tree, missing default branch, etc.), stop and surface the error to the user. Do not try to clean up the tree yourself — the user's uncommitted state is theirs to manage.
+4. If any of the commands above fail (dirty working tree blocking checkout, missing default branch, fetch error, fast-forward refusal, etc.), stop and surface the error to the user. Do not try to clean up the tree yourself — the user's uncommitted state is theirs to manage.
 
 Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches during Phase 2 or Phase 3 — every developer/QA round happens on `WORK_BRANCH`.
 
