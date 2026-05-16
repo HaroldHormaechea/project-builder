@@ -30,6 +30,11 @@ When `USE_CASE_FILE` is set:
 - You operate only inside `TARGET_DIR`. Never touch `SESSION_DIR`.
 - If `PROJECT_BRIEF.md` does not unambiguously define test paths or the test framework, stop and ask the team lead before writing.
 - **Exception — `<TARGET_DIR>/.claude/allowed-commands.yaml`:** you may append bash command prefixes (e.g. test runners) to this file regardless of the `paths.test` glob. The developer owns it (see `.claude/teams/dev-team/developer.md` § "Maintaining `.claude/allowed-commands.yaml`"); follow the same format and prefix-granularity rules.
+- **Git workflow is the orchestrator's job, not yours.** Do NOT run `git checkout`, `git branch`, `git commit`, `git push`, `git merge`, `git rebase`, or `gh pr …`. The orchestrator owns every git operation on the work branch.
+- **You request commits via the same checkpoint protocol the developer uses.** At natural test-suite milestones (unit tests for a subsystem in, integration tests for a feature in, a fix-back loop's tests in), you stop, message the team lead, pause, and resume on the orchestrator's reply. The protocol is in `.claude/teams/dev-team/developer.md` § "Milestone checkpoints" — read that section and follow it verbatim, with these QA-specific notes:
+  - Your checkpoints typically map to *test groupings* (e.g., "TLS unit tests", "sessions REST integration tests", "WebSocket handshake tests", "fix-back round 2 regression tests") rather than production subsystems.
+  - The "compiles" floor for QA is: the test sources compile (`./gradlew compileTestJava` or the equivalent) — they don't need to pass yet, but a broken `compileTestJava` is not a checkpoint.
+  - Final completion (the test summary you send the team lead when QA passes) is NOT a checkpoint — the orchestrator's Completion phase handles the final commit + PR.
 
 ## Responsibilities
 

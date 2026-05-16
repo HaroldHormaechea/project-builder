@@ -117,6 +117,7 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 4. Feedback loop (cap **6 rounds**):
    - If the developer reports the proposal is infeasible, forward the issue to `analyst` via `SendMessage`, wait for a revised proposal, then forward the revision to `developer`.
    - If the loop exceeds 6 rounds, stop and report to the user.
+5. **Handle checkpoint requests from the developer.** See *Handling milestone checkpoints* below for the protocol. Default policy is *commit and push*; the user can opt out at run-time.
 
 ## Phase 3 — Testing
 
@@ -126,19 +127,53 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 4. Feedback loop (cap **6 rounds**):
    - If QA reports bugs, forward them to `developer` via `SendMessage`, wait for fixes, then forward the fix summary to `qa`.
    - If the loop exceeds 6 rounds, stop and report to the user.
+5. **Handle checkpoint requests from QA** (and any from the developer during a fix-back round). Same protocol as Phase 2 — see *Handling milestone checkpoints* below.
+
+## Handling milestone checkpoints
+
+The developer and QA request commits at natural milestones via the `CHECKPOINT_REQUEST` protocol documented in `.claude/teams/dev-team/developer.md` § "Milestone checkpoints" and `.claude/teams/dev-team/qa.md`. While they wait for your reply they pause — so respond promptly, even when the answer is "skip".
+
+**Run-level policy.** Decide at the start of Phase 2 (or earlier — see *Run-level checkpoint policy* below) whether intermediate commits are on for this run:
+
+- **`on`** (default): commit + push every checkpoint.
+- **`off`**: never commit intermediate work; everything lands in the Completion-phase commit.
+- **`ask`**: prompt the user via `AskUserQuestion` the first time a checkpoint arrives, then remember their choice for the rest of the run.
+
+If the user gave an explicit directive at run-start ("commit as you go", "no intermediate commits", "don't push until done"), use it. Otherwise default to `on`.
+
+**On every incoming `CHECKPOINT_REQUEST` message:**
+
+1. Parse the request: subject (line 2), optional body, file list.
+2. **Verify the tree is in a sane state** with `git -C <TARGET_DIR> status --short`. If the status is empty, the agent is confused — reply `CHECKPOINT_DEFERRED` with "nothing staged or modified; keep working until you actually have changes to commit". If untracked/staged files are visible that are outside the agent's declared scope (developer touching test paths, QA touching production code, anyone touching `<SESSION_DIR>` — which should be impossible but verify), reply `CHECKPOINT_BLOCKED` with the offending paths and tell them to stop.
+3. **Apply the policy:**
+   - Policy `off` → reply `CHECKPOINT_SKIPPED` immediately with a one-line acknowledgement. Do nothing on git.
+   - Policy `on` → proceed to step 4.
+   - Policy `ask` (first checkpoint of the run only) → run `AskUserQuestion` with options "Yes — commit at each milestone" / "No — single commit at the end" / "Ask again later". Persist the answer as the run-level policy. Then act on the new policy.
+4. **Commit and push:**
+   1. `git -C <TARGET_DIR> add -A` (or stage only the files the agent listed — for a strict policy, stage by path; for the default policy, `-A` is fine since the agent has been instructed to pause work).
+   2. `git -C <TARGET_DIR> commit -m "<subject>"` using the agent's proposed subject, with a HEREDOC body if they provided one. Match the repo's commit-message style (no AI footers, no `Co-Authored-By: Claude …` — strip if present).
+   3. `git -C <TARGET_DIR> push origin <WORK_BRANCH>`.
+   4. On a hook failure during commit, capture the hook output, abort the commit (do NOT `--no-verify`), and reply `CHECKPOINT_BLOCKED` with the hook's message — the agent fixes it and re-requests. Never amend a successful commit.
+   5. On a push failure that isn't a hook (network blip, rejected non-fast-forward), reply `CHECKPOINT_BLOCKED` with the error. Do NOT force-push. Investigate before retrying.
+5. **Reply** `CHECKPOINT_COMMITTED` to the requesting agent with the new commit's short SHA, so they can resume. The reply is what unblocks them — never forget this step.
+
+**Liveness consideration.** A checkpoint reply is an expected substantive response to a `CHECKPOINT_REQUEST`. If you take longer than the liveness window (5 min nudge, 10 min restart) to reply, you risk the agent being declared dead even though it is correctly paused. Treat checkpoint replies as high-priority; don't queue them behind unrelated work.
+
+**Run-level checkpoint policy.** When spawning the developer in Phase 2, you may surface the policy in the spawn prompt for the user's awareness, but the agent does not need to know it — the agent always requests; only your reply changes. If you defaulted to `on`, mention it in the plan preview so the user can override before implementation starts.
 
 ## Completion
 
 1. If `USE_CASE_FILE` is set, update its ledger row to `done` with today's date.
 2. **Ship the work** (only when `vcs.enabled` is `true`; otherwise skip this entire step):
-   1. Stage the dev-team's changes and create a single commit on `WORK_BRANCH`. Match the repo's existing commit style — check `git -C <TARGET_DIR> log --oneline -20` for tone. Use a HEREDOC for multi-line messages. Never `--amend`, never `--no-verify`, never bypass hooks.
-   2. Push the branch: `git -C <TARGET_DIR> push -u origin <WORK_BRANCH>`.
-   3. **If the project is on GitHub** — `vcs.remote` contains `github.com` and `gh --version` succeeds — open a pull request:
+   1. Inspect what's still uncommitted: `git -C <TARGET_DIR> status --short`. With intermediate-commit policy `on` (default), most or all of the work is already committed and pushed via checkpoints — only the last slice (post-QA fix-back, untracked docs) typically remains. With policy `off`, *all* the dev-team's work is uncommitted and lands in one commit here.
+   2. If there are uncommitted changes, stage them and create a final commit on `WORK_BRANCH`. Match the repo's existing commit style — check `git -C <TARGET_DIR> log --oneline -20` for tone. Use a HEREDOC for multi-line messages. Never `--amend`, never `--no-verify`, never bypass hooks. If the working tree is already clean (everything was committed mid-run via checkpoints), skip the commit step.
+   3. Push the branch: `git -C <TARGET_DIR> push -u origin <WORK_BRANCH>` (idempotent — if intermediate checkpoints already pushed, this just no-ops or pushes the final commit on top).
+   4. **If the project is on GitHub** — `vcs.remote` contains `github.com` and `gh --version` succeeds — open a pull request:
       - Inspect recent PRs with `gh pr list --limit 5` (run with `cwd: <TARGET_DIR>`) to follow the repo's title/body conventions.
       - Run `gh pr create --base <vcs.default_branch> --head <WORK_BRANCH> --title "<short>" --body "<summary>"` from `<TARGET_DIR>`. Title under 70 chars; body summarizes what was implemented and what was tested. Use a HEREDOC for the body.
       - Print the PR URL to the user.
       - **NEVER merge the PR.** Do not run `gh pr merge`. Do not pass `--auto`, `--squash`, `--rebase`, `--merge`, or any other flag that closes or auto-merges. Merging requires explicit per-PR authorization from the user — wait for them to ask.
-   4. **If the project is git-tracked but not on GitHub**: stop after the push. Report the pushed branch name to the user and let them open a PR / MR themselves on whatever forge they use.
+   5. **If the project is git-tracked but not on GitHub**: stop after the push. Report the pushed branch name to the user and let them open a PR / MR themselves on whatever forge they use.
 3. Present a final summary to the user:
    - What was implemented
    - What was tested
