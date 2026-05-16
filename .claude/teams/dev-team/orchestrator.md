@@ -31,6 +31,24 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
 
 Always read the role file with `Read` before spawning — do not guess or paraphrase role content.
 
+## Liveness protocol — idle nudge and restart
+
+Spawned agents can go idle silently after receiving a message they should have acted on (an observed wake-up failure mode). To protect the run from indefinite stalls, apply this protocol to **every** spawned agent across all phases — Phase 1 peer loop (analyst, challenger), Phase 2 developer loop, Phase 3 QA loop.
+
+You measure time using the wall-clock timestamps on the `idle_notification` messages that the harness routes to your inbox. Do not run `sleep` commands to gate this — messages and idle notifications arrive asynchronously, so you can do other work and react when notifications land.
+
+For every message you send that requires a substantive reply (initial proposal hand-off, revision request, bug report, fix-back, etc.):
+
+1. **Within 5 minutes of message delivery** the agent should produce a substantive response — a `SendMessage` carrying the expected content (proposal, verdict, changes summary, test summary, fix summary). An `idle_notification` alone does NOT count as a substantive reply.
+2. **At the 5-minute mark with no substantive reply**: send a **nudge** to the agent via `SendMessage`. Phrase it as a direct prod, name the message they should be acting on (timestamp it if useful), and ask them to proceed. Reset the 5-minute window from the moment the nudge is delivered.
+3. **At the 10-minute mark (5 minutes after the nudge) still no substantive reply**: declare the agent **dead** and recover:
+   - **Phase 1 — analyst or challenger went dead**: send `shutdown_request` to BOTH analyst and challenger, wait for them to drain, then re-spawn fresh `analyst` and `challenger` agents and restart the peer loop from scratch with the same `USE_CASE_FILE` / task description. Discard any prior partial proposal — start clean. The 6-round peer-loop cap resets.
+   - **Phase 2 — developer went dead**: send `shutdown_request` to the developer, re-spawn a fresh `developer` agent with the same approved proposal and a one-line note that this is a restart after a liveness failure. The 6-round developer-loop cap resets.
+   - **Phase 3 — qa went dead**: send `shutdown_request` to QA, re-spawn a fresh `qa` agent with the same approved proposal and developer change summary. The 6-round QA-loop cap resets.
+4. If any single role dies **twice in the same run**, stop. Set the ledger row to `blocked`, send `shutdown_request` to every active teammate, call `TeamDelete`, and escalate to the user — repeated liveness failure points at a systemic issue, not a flake.
+
+This protocol applies to all `SendMessage` exchanges. Spawn-time hand-offs count too — the moment you spawn an agent and assign their initial task, the 5/10-minute clock starts on whatever first substantive action you expect from them (typically the analyst's initial proposal or the developer's change summary).
+
 ## Ledger updates (when `USE_CASE_FILE` is set)
 
 The use-case ledger lives at the path given by the brief's `use_cases.index` frontmatter field (default `<TARGET_DIR>/USE_CASES.md`). You (the root session) are the only writer. Role agents MUST NOT touch this file.
