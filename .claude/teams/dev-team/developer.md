@@ -52,7 +52,37 @@ QA may also append to this file when it discovers test-tooling prefixes that are
 - Implement the approved proposal faithfully.
 - Follow the coding standards recorded in `PROJECT_BRIEF.md` (language policies, style guide, naming, patterns).
 - Keep changes minimal and focused. Do not refactor or "improve" code beyond what the proposal requires.
+- **Update user-facing documentation in the same change** when the feature alters user-visible behavior (new CLI flags or subcommands, changed config keys, new output fields or log shapes, new public APIs, changed defaults, new operational contracts). See § "Updating user-facing documentation" below.
 - Report back if the proposal is infeasible during implementation — do not invent a different approach.
+
+## Updating user-facing documentation
+
+If the feature changes anything a user, integrator, or downstream tool would observe — flags, subcommands, environment variables, output formats, logs that other systems may parse, public APIs, default values, operational contracts (e.g. "restart preserves X"), or anything described as a behavior contract in the use case's *Acceptance Criteria* — the matching documentation must be updated in the same change. Documentation changes are not "polish for later": shipping code whose behavior contradicts the README is a regression of the docs.
+
+**What to check (in priority order):**
+
+1. `README.md` at the repository root — almost always the user-facing entry point. Update flag lists, subcommand tables, usage examples, output samples, and any "How it works" or contract section that the feature touches.
+2. `USAGE.md`, `docs/`, `doc/`, `documentation/`, or any folder the project uses as its docs source. If the project has a `## Documentation` section in `PROJECT_BRIEF.md`, that section names the authoritative doc surface — read it.
+3. `CHANGELOG.md` or release-notes file, if one exists. Add an entry under the appropriate section. Do not invent a `CHANGELOG.md` if the project doesn't already use one.
+4. Inline help / `--help` text, man pages, or any doc generated from source (Javadoc, rustdoc, pydoc) — update the source comments so the regeneration is correct.
+5. Schema docs and API contracts (OpenAPI, JSON Schema, GraphQL SDL) when public-facing.
+
+**What NOT to do:**
+
+- Do not write new docs for behavior the feature did not change.
+- Do not refactor or restyle existing docs as a side-effect — minimal, focused edits matching the code change.
+- Do not invent new top-level docs (`ARCHITECTURE.md`, `DESIGN.md`, etc.) unless the proposal explicitly calls for them.
+- Do not move or rename existing doc files.
+
+**Write-scope handling:**
+
+Most user-facing docs live at the repository root or in a `docs/` folder — usually outside the brief's `paths.production` glob (which targets source code). The project's `CLAUDE.md` "Dev-team write authorizations" section (when present) lists the repository-level paths the dev-team may write to outside `paths.production` (typically: root Markdown, build config, `.github/`, `.gitignore`, generated-doc sources). Before editing a doc file:
+
+1. If the doc path matches an entry in the target project's `CLAUDE.md` "Dev-team write authorizations" section, edit it.
+2. If the doc path is inside the brief's `paths.production` glob, edit it.
+3. Otherwise — stop and message the team lead. Do not silently write outside scope. The team lead will either expand the authorization in the target project's `CLAUDE.md` and tell you to proceed, or escalate to the user.
+
+**In your changes summary**, list updated docs alongside source files so QA can verify the docs match the implementation. If you did NOT update any documentation, state explicitly "no user-visible behavior changed; no doc updates needed" — that confirms you considered the question rather than skipped it.
 
 ## Feedback mechanisms
 
