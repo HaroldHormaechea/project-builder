@@ -114,17 +114,29 @@ When the loop exits, the **second** `gh run view` call prints both `status` and 
 ### The reliable polling pattern (PR check rollup)
 
 ```bash
-until ! gh -R <owner>/<repo> pr checks <pr> --json bucket -q '.[].bucket' 2>/dev/null \
-    | grep -q '^pending$'
-do
+while true; do
+    output=$(gh -R <owner>/<repo> pr checks <pr> --json bucket -q '.[].bucket' 2>/dev/null)
+    if [ -n "$output" ] && ! echo "$output" | grep -q '^pending$'; then
+        break
+    fi
     sleep 30
 done
 gh -R <owner>/<repo> pr checks <pr>
 ```
 
-A PR rollup has multiple checks. The condition has a deliberate `!` on the outside: `grep -q '^pending$'` exits **0 if ANY line says `pending`**, and the `!` inverts that, so the until-loop's condition is "no row says pending." The loop holds while at least one check is still `pending`; it exits the first iteration where every row has left the pending bucket. The follow-up `gh pr checks <pr>` (no `--json`) prints the human-readable table so the caller can see which check(s) ended in `fail` if any did.
+A PR rollup has multiple checks. The exit condition combines two defenses:
 
-**Common foot-gun**: writing `grep -vq '^pending$'` instead (without the outer `!`). That checks whether ANY line is non-pending, which exits the loop the moment the FIRST check finishes — leaving slower checks still running. The pattern looks plausible and was the bug in this skill's first version; verified the fix on PR #15 of `ai-sandbox` 2026-05-21.
+1. `[ -n "$output" ]` — require non-empty output. A transient `gh` failure (network blip, GitHub API hiccup) returns exit-non-zero AND empty stdout. Without this guard, an empty string from gh gets piped into `grep -q '^pending$'`, grep finds no matches, the negation flips to true, the loop exits — and the harness reports completion on the next gh call's exit code, with no real signal about whether CI is actually done. Empty output ≠ "all checks done."
+2. `! echo "$output" | grep -q '^pending$'` — no row says pending. `grep -q '^pending$'` exits 0 if ANY line is `pending`; the `!` inverts that. Together: "no row says pending."
+
+The loop holds while gh fails OR at least one check is still `pending`; it exits the first iteration where gh succeeds AND no row is pending. The follow-up `gh pr checks <pr>` (no `--json`) prints the human-readable table so the caller can see which check(s) ended in `fail`.
+
+**Note on the follow-up `gh pr checks` exit code**: gh documents exit code 8 for "any check is pending or failing." If a check ended in `fail`, the whole shell script exits 8 even though the loop did its job. Read it as "exited normally; some checks failed; see the table." If you need a structured success/fail signal at the script level, capture the bucket list a second time and compare against `pass`.
+
+**Common foot-guns** that broke earlier versions of this same skill:
+
+1. Writing `grep -vq '^pending$'` instead of `! grep -q '^pending$'`. `grep -v` succeeds if ANY line is *non-pending*, which exits the loop the moment the first check finishes — leaving slower checks still running. Verified the fix on PR #15 of `ai-sandbox` 2026-05-21.
+2. Omitting the `[ -n "$output" ]` guard. A transient gh API blip empties the stdout pipeline, the negation-of-grep-on-empty flips true, and the loop exits prematurely. Verified the fix on the same PR — second poll iteration. The lesson: an empty output from gh is **never** evidence that polling is complete; it's evidence the API call failed.
 
 ### What NOT to do
 
