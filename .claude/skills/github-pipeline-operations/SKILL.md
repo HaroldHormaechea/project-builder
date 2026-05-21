@@ -36,7 +36,7 @@ Each surface has its own vocabulary; do not assume case-folding works across the
 
 ### `gh pr checks <pr> --json state`
 
-`state` is the GraphQL `StatusState` enum. Terminal: `SUCCESS`, `FAILURE`, `ERROR`. Non-terminal: `PENDING`, `EXPECTED`. **`COMPLETED` is NOT a value of `state` here** — checking for it will loop forever.
+`state` is the GraphQL `StatusState` enum. Terminal: `SUCCESS`, `FAILURE`, `ERROR`. Non-terminal: `PENDING`, `EXPECTED`. **`COMPLETED` is NOT a value of `state` here** — checking for it will loop forever. This bug was hit twice during this skill's development; prefer `bucket` over `state` for poll exit conditions for that reason.
 
 ### `gh pr checks <pr> --json bucket`
 
@@ -114,15 +114,17 @@ When the loop exits, the **second** `gh run view` call prints both `status` and 
 ### The reliable polling pattern (PR check rollup)
 
 ```bash
-until gh -R <owner>/<repo> pr checks <pr> --json bucket -q '.[].bucket' 2>/dev/null \
-    | grep -vq '^pending$'
+until ! gh -R <owner>/<repo> pr checks <pr> --json bucket -q '.[].bucket' 2>/dev/null \
+    | grep -q '^pending$'
 do
     sleep 30
 done
 gh -R <owner>/<repo> pr checks <pr>
 ```
 
-A PR rollup has multiple checks. The loop holds while **any** check is still `pending`; it exits the first iteration where all rows have left the pending bucket. The follow-up `gh pr checks <pr>` (no `--json`) prints the human-readable table so the caller can see which check(s) ended in `fail` if any did.
+A PR rollup has multiple checks. The condition has a deliberate `!` on the outside: `grep -q '^pending$'` exits **0 if ANY line says `pending`**, and the `!` inverts that, so the until-loop's condition is "no row says pending." The loop holds while at least one check is still `pending`; it exits the first iteration where every row has left the pending bucket. The follow-up `gh pr checks <pr>` (no `--json`) prints the human-readable table so the caller can see which check(s) ended in `fail` if any did.
+
+**Common foot-gun**: writing `grep -vq '^pending$'` instead (without the outer `!`). That checks whether ANY line is non-pending, which exits the loop the moment the FIRST check finishes — leaving slower checks still running. The pattern looks plausible and was the bug in this skill's first version; verified the fix on PR #15 of `ai-sandbox` 2026-05-21.
 
 ### What NOT to do
 
