@@ -21,6 +21,32 @@ If the command returns output, **skip Step 3a entirely** — bypass permissions 
 - `PROJECT_BRIEF.md` is the single source of truth for the target project. Both entry points read it (or produce it), and `develop` refuses to run without one.
 - Always resolve the session directory dynamically (e.g., via `pwd`); never hardcode paths, since this workspace may live at different paths on different machines.
 
+## Acquiring a target project's skills
+
+A target project can ship its own skills under `<TARGET_DIR>/.claude/skills/`. Because the Claude session is launched from this workspace (not the target), those project-local skills are not loaded automatically. The **`acquire-project-skills` skill** bridges this: it symlinks each target skill into the user's personal skills folder (`~/.claude/skills/`), which Claude Code watches and hot-reloads, so the project's skills become callable in the current session.
+
+**When it runs.** All four entry points invoke `acquire-project-skills` once `TARGET_DIR` is resolved, before doing their real work (`develop` Step 2c, `define-use-case` Step 2b, `revise-brief` Step 1b; for `project-builder`, the root session runs it when continuing an existing repo that ships skills). It is also user-invocable standalone ("load the skills from project X"). Re-running is idempotent.
+
+**Mechanics.**
+- Implementation lives in `.claude/scripts/acquire-project-skills.sh` (link + ledger upsert) and `.claude/scripts/release-project-skills.sh` (unlink + ledger prune + dangling-symlink safety sweep). The skill is a thin wrapper around the acquire script.
+- The **ledger** `acquired-project-skills.json` (workspace root, **gitignored**, per-machine) records what was linked, keyed by `(project, session_id)`:
+  ```json
+  { "acquired-project-skills": [
+    { "project": "/abs/path/to/target", "session_id": "<uuid>", "skills": ["/home/<user>/.claude/skills/<name>", ...] }
+  ] }
+  ```
+  Paths are stored absolute (not `~`-prefixed) so the cleanup hook can `rm` them unambiguously. The script tags each entry with `$CLAUDE_CODE_SESSION_ID`, so cleanup is scoped per session even if two sessions run at once.
+- **Hooks** (registered in `.claude/settings.json`):
+  - `SessionStart` (`hooks/session-start.sh`) ensures `~/.claude/skills/` exists — required, because Claude Code only hot-reloads a personal-skills folder that already existed at session start — and runs `release-project-skills.sh --prune-dangling` to clear orphans left by a previously crashed session.
+  - `SessionEnd` (`hooks/session-end.sh`) reads `session_id` from stdin and runs `release-project-skills.sh <session_id>`, removing exactly this session's symlinks and dropping its ledger entries.
+
+**Safety guarantees (enforced by the scripts — do not work around them).**
+- Never clobbers an existing entry in `~/.claude/skills/`: a name collision is skipped with a warning, not overwritten.
+- Never shadows one of this workspace's own skills: a target skill whose name matches a workspace skill is skipped.
+- The release path only ever `rm`s **symlinks** (guarded by a `-L` test); a real file/dir at the same path is left untouched.
+
+**Hot-reload caveat.** Linked skills become callable on the *next turn*, but only if `~/.claude/skills/` existed when the session started. The `SessionStart` hook guarantees this for every session after the tooling is installed; on the first-ever run on a fresh machine the folder may not have existed at start, so a session restart is needed once.
+
 ## Entry point 1 — `project-builder` (scaffold)
 
 When the user asks to define, start, plan, or scaffold a new project, **or** when the user asks to clone an existing repo or continue working on an existing project folder:
@@ -38,6 +64,8 @@ When the user asks to define, start, plan, or scaffold a new project, **or** whe
    - `mode: "acceptEdits"` — the agent auto-accepts its own file writes; Bash still prompts for commands not pre-approved in `.claude/settings.local.json`.
 
 The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before** acting, so its plan is persisted and verifiable.
+
+**Acquire shipped skills.** If `TARGET_DIR` already contains `.claude/skills/` (e.g. an existing repo being continued), the root session invokes `acquire-project-skills` so those skills are usable this session — see § "Acquiring a target project's skills". A brand-new scaffold has none, so this is usually a no-op.
 
 **Bash conventions the subagent follows (documented in `.claude/agents/project-builder.md`):** one `mkdir -p` call per tree, `git -C <TARGET_DIR>` form instead of `cd <TARGET_DIR> && git …`, absolute paths throughout, and no compound `&&`/`;` commands. Low-risk scaffolding Bash verbs (`mkdir`, `git init`, `git branch`, `git remote add`, `git rev-parse`, `git -C …`) are pre-approved in `.claude/settings.local.json` so they do not prompt during a normal scaffold.
 

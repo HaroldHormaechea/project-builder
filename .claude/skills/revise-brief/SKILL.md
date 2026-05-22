@@ -26,6 +26,10 @@ Do NOT use this skill to scaffold a new project (use `project-builder`) or to bu
 3. Refuse and re-ask if `TARGET_DIR` equals, contains, or is contained by `SESSION_DIR` (path-segment comparison).
 4. Confirm `<TARGET_DIR>/PROJECT_BRIEF.md` exists. If it does not, stop and tell the user to run `project-builder` first.
 
+## Step 1b — Acquire the target project's skills
+
+If `<TARGET_DIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `TARGET_DIR`. Skip silently if the folder is absent. See CLAUDE.md § "Acquiring a target project's skills".
+
 ## Step 2 — Inspect current state
 
 1. Read `PROJECT_BRIEF.md`.

@@ -25,6 +25,10 @@ Read `<TARGET_DIR>/PROJECT_BRIEF.md`. You need this as background so the formali
 
 The only writes this skill performs on the brief are scoped to the `use_cases` frontmatter block (path bookkeeping) and a single `## Use Cases` prose paragraph pointing at the ledger — both handled in Step 6b. No other section, and no other frontmatter field, may be touched.
 
+## Step 2b — Acquire the target project's skills
+
+If `<TARGET_DIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `TARGET_DIR`, so any project-shipped skills are usable this session (e.g. when this use case later chains into `develop`). Skip silently if the folder is absent. See CLAUDE.md § "Acquiring a target project's skills".
+
 ## Step 3 — Collect the raw description
 
 Ask the user in free text to describe the use case, **as thoroughly as they consider appropriate**. No structure is imposed. Make clear:

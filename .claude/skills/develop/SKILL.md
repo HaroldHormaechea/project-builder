@@ -51,6 +51,10 @@ The development team can be anchored to a specific use-case file. Resolve `USE_C
 
 If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as the task description. The file's other sections (acceptance criteria, pitfalls) will be forwarded to the role agents verbatim in Step 5.
 
+## Step 2c — Acquire the target project's skills
+
+If `<TARGET_DIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `TARGET_DIR`, so any skills the project ships become usable in this session. It symlinks them into `~/.claude/skills/`, records them in the gitignored ledger, and the `SessionEnd` hook removes them on exit. Skip silently if the folder is absent (most freshly scaffolded projects have none). See CLAUDE.md § "Acquiring a target project's skills".
+
 ## Step 3 — Describe and confirm
 
 Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.

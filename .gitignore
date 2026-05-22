@@ -6,3 +6,8 @@
 
 # Local Claude Code overrides — user-specific, not shared
 .claude/settings.local.json
+
+# Runtime ledger of project skills symlinked into ~/.claude/skills this session.
+# Machine-maintained by .claude/scripts/{acquire,release}-project-skills.sh and the
+# session hooks; per-machine state, never shared.
+acquired-project-skills.json
