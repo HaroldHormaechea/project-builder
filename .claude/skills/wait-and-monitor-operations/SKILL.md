@@ -1,15 +1,39 @@
 ---
-name: github-pipeline-operations
-description: Trigger and monitor GitHub Actions pipelines via the gh CLI — push-triggered workflow_run dispatch, tag-triggered release workflows, PR check rollups, and the polling patterns that reliably exit on terminal states. Includes the exact field names, expected success/failure outputs, and the foot-guns that silently leave polls spinning forever. Use whenever a Claude run needs to wait for CI / a release workflow to finish, or wants to read out a failed step's logs without dumping the full run.
+name: wait-and-monitor-operations
+description: Safely wait for and monitor any external-consequence outcome — CI runs, deploys, queue drains, container/service health, files appearing on disk — using the general "pre-flight the polled command, cap the loop, check exit code every iteration" pattern that prevents silent infinite stalls. Documents the reusable `wait_until` wrapper plus a concrete GitHub Actions instantiation (push / tag / PR-triggered runs, terminal-state field vocabularies, log-failed extraction) with every foot-gun that silently breaks polls. Use whenever a Claude run needs to wait for an asynchronous outcome before its next step.
 ---
 
-# GitHub Pipeline Operations
+# Wait-and-Monitor Operations
 
-How to trigger GitHub Actions pipelines, monitor them to terminal state, and read their results, using the `gh` CLI. Written to be picked up by a Claude run that has just pushed a branch / tag / PR and needs to wait for CI to finish before taking the next step (approve, merge, tag the next release, escalate to the user).
+How to wait for any asynchronous outcome — CI, a deploy, a queue drain, a container coming up, a file landing on disk — without writing the kind of poll that errors every iteration and stalls silently until its fallback timeout.
+
+The general pattern is in § "The general wait-and-monitor pattern" and § "Safe-poll wrapper". The bulk of the document is a concrete instantiation against the `gh` CLI for GitHub Actions, which is the most common case in this workspace; the field names + value vocabularies there are footgun-dense enough to warrant their own reference section.
 
 ## Why this skill exists
 
-Polling GitHub Actions correctly is harder than it looks. `gh pr checks` and `gh run view` expose **different** JSON field names with **different** value vocabularies. A poll written against one and pointed at the other returns `Unknown JSON field: ...` and falls into a silent until-loop that never exits. This skill documents the field-name traps explicitly so a future run does not have to rediscover them mid-flight.
+Polls fail silently. An `until` loop checks the *value* of a derived expression, never the *exit code* of the command that produced it; a polled command that errors every iteration produces empty output, the condition is permanently false, and the loop holds until its own timeout while the underlying system has long since finished. Verified failure mode 2026-05-30: `gh run list --status completed --created '>=...'` on a gh version that does not support either flag — 30-minute spin while CI had finished in two.
+
+The defences below — pre-flight the EXACT polled command, cap iterations, check exit code per iteration, refuse to treat empty output as terminal — are what separates a poll that exits when the system is done from a poll that exits when it gives up.
+
+On top of that general pattern, polling GitHub Actions correctly has its own surface-area trap: `gh pr checks` and `gh run view` expose **different** JSON field names with **different** value vocabularies. A poll written against one and pointed at the other returns `Unknown JSON field: ...` and falls into the same silent until-loop. This skill documents the field-name traps explicitly so a future run does not have to rediscover them mid-flight.
+
+## The general wait-and-monitor pattern
+
+For ANY external-consequence poll, the structure is fixed:
+
+1. **Pre-flight the EXACT polled command.** Run it once synchronously, capture stdout AND exit code. If exit != 0 OR stdout is empty, halt — do not enter the loop. (See § "Pre-flight validation (MANDATORY before any poll)" for the precise rule + recipe.)
+2. **Cap iterations.** Pick a max-iteration count derived from a realistic upper bound on the wait, not from "how long until I am willing to give up." A stalled remote system must surface as a deterministic cap-hit exit code, never as a process held forever.
+3. **Per-iteration: check exit code + non-emptiness BEFORE checking terminal value.** Treat exit != 0 or empty stdout as "still waiting" (and sleep again), not as terminal. The pre-flight already ruled out "broken command"; per-iteration treats it as a transient blip.
+4. **Distinguish exit codes by failure mode.** `0` = terminal value observed. `1` = iteration cap hit (remote system stalled). `2` = pre-flight failed (command broken). The caller can branch on these meaningfully.
+5. **Never raise the cap to compensate for a broken poll.** A poll that hits the cap because the polled command was wrong is not the same as a poll that hits the cap because CI legitimately took too long. Raise pre-flight rigour instead.
+
+The § "Safe-poll wrapper" section below bakes this shape into a reusable Bash function. Adapt it; don't reinvent it. Beyond Bash, the same five rules apply when polling from any harness — including the Claude Code Bash tool's `run_in_background: true` (where the only safety net is the pre-flight + cap, since the harness cannot detect a no-progress loop).
+
+---
+
+# GitHub Actions instantiation
+
+Concrete worked example. Everything below applies the rules from § "The general wait-and-monitor pattern" and § "Pre-flight validation" to the `gh` CLI surface. If you are waiting on something other than GitHub Actions, the patterns in § "Safe-poll wrapper" generalize directly — substitute your own polled command and terminal vocabulary.
 
 ## The two CLI surfaces
 
