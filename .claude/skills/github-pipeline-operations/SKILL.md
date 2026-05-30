@@ -91,6 +91,8 @@ Wait ~3 seconds for the dispatched run to register, then `gh run list --workflow
 
 ## Monitoring to terminal state
 
+> **Before using any pattern in this section, run the pre-flight from § "Pre-flight validation (MANDATORY before any poll)" below.** The examples here show the loop body for clarity, NOT the full safe invocation. Skipping the pre-flight is how a typo'd flag or unsupported field name silently stalls a poll until its fallback timeout — verified failure mode 2026-05-30.
+
 ### The reliable polling pattern (workflow runs)
 
 ```bash
@@ -151,15 +153,84 @@ Each of these silently breaks polling — the loop's condition is always false a
 | Polling without `sleep` between iterations | Hits the GitHub API rate limit on long runs; the limit error returns no JSON, the condition becomes "no match," loop continues to hammer |
 | Polling without `2>/dev/null` and without a max-iteration cap | Transient API failures get swallowed in stdout-vs-stderr crossfire; subtle |
 
-### Pre-flight validation
+### Pre-flight validation (MANDATORY before any poll)
 
-Before launching any long-running poll, **call the underlying query once synchronously** and confirm:
+A poll that loops over a command which **errors every iteration** stalls silently until its timeout. The until-loop condition is checking a value derived from failed output; the failed exit code never enters the condition. Verified failure mode on 2026-05-30: an `until` loop wrapped `gh run list --status completed --created '>=...'`. Neither `--status` nor `--created` exist on that gh version's `run list`; every iteration returned exit 2 with empty stdout; the length-of-jq-on-empty test was always false; the loop ran until its 30-minute fallback. CI itself had finished within minutes; the poll just never noticed.
 
-1. The field name actually exists (`gh ... --json help` is not supported — easiest is to run `gh ... --json <field> -q '<path>'` once and check stderr for "Unknown JSON field").
-2. The value you are testing against actually appears for an *in-flight* run, not just a completed one.
-3. The exit condition will plausibly be reached — e.g. test the same command against a previously-completed run and confirm the value you expect.
+The rule: **never enter a wait loop without first running the EXACT command once and asserting it exits 0 with parseable output.** Run the command as written, not a simplified variant — flag-compatibility traps are precisely what this catches.
 
-A 30-second smoke test prevents a half-hour silent spin.
+```bash
+# Pre-flight: run the literal polled command once.
+# Substitute <CMD> with the actual invocation, including every flag you plan
+# to use inside the loop. Do NOT remove flags "for testing" — the typo or
+# unsupported flag is the bug you are checking for.
+preflight=$(<CMD> 2>&1); rc=$?
+if [ $rc -ne 0 ]; then
+    echo "Pre-flight failed (exit $rc): $preflight" >&2
+    exit 1                          # bail; do not enter the loop
+fi
+if [ -z "$preflight" ]; then
+    echo "Pre-flight returned empty output; the loop's exit condition cannot fire" >&2
+    exit 1
+fi
+# (Optional) sanity-check that the value you compare against actually appears
+# in the schema — e.g. by piping through the same jq filter the loop uses.
+```
+
+What the pre-flight catches that the loop's own guards do NOT:
+
+- Unsupported flags / typos (`--status`, `--created`, misspelled `--workflow-name`). The CLI errors to stderr; with `2>/dev/null` inside the loop, the error is invisible and the condition is silently false forever.
+- Wrong field names on the wrong surface (`status` on `gh pr checks`; see § "The two CLI surfaces").
+- Missing auth (`gh auth status` would print but a polling user wouldn't notice). Run `gh auth status` once before the first call if you have not in this session.
+- A repo that does not actually have the workflow the poll waits on (e.g. the wrong `<owner>/<repo>`, a workflow renamed last week).
+
+This applies to ANY poll for an external consequence — CI, deploy, queue drain, container health, file showing up on disk. The `gh` examples are the most common case in this workspace, but the rule is general: **pre-flight the polled command; assert exit 0 and non-empty output; only then enter the loop.**
+
+### Safe-poll wrapper
+
+A reusable shape that bakes the defenses in. Use it directly or as a template.
+
+```bash
+# wait_until <description> <max_iterations> <sleep_seconds> <command...>
+# The command MUST print a single line that is empty or "pending" while waiting,
+# and a non-empty non-"pending" value when terminal. Returns 0 on terminal,
+# 1 on iteration cap.
+wait_until() {
+    local desc="$1" max="$2" sleep_s="$3"; shift 3
+    local out rc i=0
+
+    # Pre-flight — same command, capture exit and stdout.
+    out=$("$@" 2>&1); rc=$?
+    if [ $rc -ne 0 ]; then
+        echo "wait_until[$desc]: pre-flight failed (exit $rc): $out" >&2
+        return 2
+    fi
+
+    while [ $i -lt "$max" ]; do
+        out=$("$@" 2>/dev/null); rc=$?
+        if [ $rc -eq 0 ] && [ -n "$out" ] && [ "$out" != "pending" ]; then
+            echo "$out"
+            return 0
+        fi
+        sleep "$sleep_s"
+        i=$((i + 1))
+    done
+    echo "wait_until[$desc]: gave up after $max iterations" >&2
+    return 1
+}
+```
+
+Properties this gives you for free:
+
+- A failing command at pre-flight time blocks the loop (return 2). The caller can distinguish "command broken" from "CI timed out" by exit code.
+- The cap on iterations is non-optional; a stalled remote system surfaces as exit 1 rather than holding a Bash subshell forever.
+- The polled command's exit code is checked every iteration. Empty output or exit-non-zero counts as "still waiting" only because the next iteration will retry — but the cap eventually wins.
+
+Adapt the `[ "$out" != "pending" ]` test to your specific terminal vocabulary (`completed` for `gh run view --json status`, `pass`/`fail`/`cancel`/`skipping` for `gh pr checks --json bucket`).
+
+### Background poll caveat
+
+If the poll is run via the Bash tool's `run_in_background: true`, the harness reports "command completed" only when the subshell exits. A broken poll that spins until its own timeout WILL eventually exit, but at the timeout's end — there is no automatic detection of "this loop is making no progress." The pre-flight + iteration cap above are the ONLY defences. Do not raise the cap to compensate for a poll you have not pre-flighted; raise the pre-flight rigour instead.
 
 ## Reading results
 
