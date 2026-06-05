@@ -192,6 +192,10 @@ Role agents (analyst, challenger, developer, qa) MUST NOT write to the ledger. T
 
 If the ledger is missing when the orchestrator needs to update it (e.g., the use-case file was moved in by hand), the orchestrator stops and escalates — it does not silently create or repair the ledger. Ledger creation belongs to `define-use-case`.
 
+## Release notes (`generate-release`)
+
+Whenever a release is cut for a target project (a `server-v*` / `android-v*` / `v*` tag and its release workflow), the release description MUST be produced by the **`generate-release` skill** — never by reusing the previous release's body (that is how stale notes accumulate, e.g. a release repeating the same change for many versions). The skill derives notes solely from the commit / PR / use-case diff since the previous tag of that track, and writes two bullet sections to the GitHub release: **New features** (each bullet ≤ 200 words) and **Bugfixes** (each bullet ≤ 50 words), with every bullet linking to the use case(s) it came from (or its PR/commit when no use case applies). It writes only the release *description* — tag creation and the release build stay with the release command / orchestrator. It is also user-invocable standalone to (re)write the notes of an existing release. For multi-track repos, run it once per track being released, each scoped to its own paths.
+
 ## Profile skills (opt-in conventions)
 
 Profiles are opinionated skills under `.claude/skills/profile-*/SKILL.md` that encode conventions for a specific stack, tool, or problem area. They are **opt-in per project**: a profile applies only when `PROJECT_BRIEF.md` → `## Profiles` lists its skill name. Profile descriptions explicitly instruct agents not to auto-invoke outside this mechanism.
