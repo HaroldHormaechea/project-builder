@@ -90,6 +90,8 @@ By default the skill **isolates the run in a fresh git worktree** cut from `TARG
 
 Must be invoked from the root session: spawned subagents cannot spawn further agents, so nested invocation will fail. If `PROJECT_BRIEF.md` is missing from the target folder, the skill first spawns `project-builder` to generate one, then proceeds.
 
+The runtime team name is `project.name` from the brief; when the run is anchored to a use case it is suffixed with the use case's **unpadded** number — `<project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `…-uc-24`) — so concurrent use-case runs never share a team. **Team regeneration is always a complete teardown first:** any time an issue forces regenerating the team (a dead agent, a stale/desynced team), the orchestrator sends `shutdown_request` to every teammate and calls `TeamDelete` before re-creating — it never re-spawns one role into a half-broken team. See `.claude/teams/dev-team/orchestrator.md` § "Team regeneration — always tear down completely first".
+
 ### Team definitions (read by the orchestrator, not invoked directly)
 
 - `.claude/teams/dev-team/orchestrator.md` — root-session orchestration instructions
