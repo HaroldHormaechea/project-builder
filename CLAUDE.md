@@ -84,6 +84,8 @@ The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before
 
 When the user asks to implement a feature, fix a bug, refactor, or make any code change in an existing target project, invoke the `develop` skill **from the root session**. Do not enter plan mode and do not start exploring manually — the skill replaces that.
 
+This applies to **generic or loosely-phrased requests too** — any ask to implement, build, add, write, fix, debug, refactor, or change a target project's code routes here, not only fully-specified feature requests. Explicit phrasings like "use the agents", "use the team", or "run the dev team" always route here. **If in doubt whether a request warrants the skill, prompt the user** (e.g. "Run the dev-team for this, or handle it directly?") rather than silently proceeding solo.
+
 The skill orchestrates a four-agent team (`analyst`, `challenger`, `developer`, `qa`) with peer review, capped feedback loops, and role-scoped write permissions. Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not hardcoded.
 
 By default the skill **isolates the run in a fresh git worktree** cut from `TARGET_DIR` on the work branch (`develop` Step 2c), so a concurrent session working in `TARGET_DIR` can't collide on files, index, or branch; the whole team then operates in that worktree (`WORKDIR`). The user can opt out per run ("no worktree" / "work in place"), and it is auto-skipped when the project isn't a git repo. The worktree is left in place until its PR merges (Step 6 offers cleanup).

@@ -1,11 +1,20 @@
 ---
 name: develop
-description: Development workflow using an agent team (Analyst, Challenger, Developer, QA) to implement features, bug fixes, or refactors in a target project folder. Requires a PROJECT_BRIEF.md in the target folder; if missing, invokes project-builder first to generate one. Use BEFORE entering plan mode whenever the user asks for a code change in an external project.
+description: Development workflow using an agent team (Analyst, Challenger, Developer, QA) to implement features, bug fixes, or refactors in a target project folder. Requires a PROJECT_BRIEF.md in the target folder; if missing, invokes project-builder first to generate one. Use BEFORE entering plan mode whenever the user asks for a code change in an external project. MUST be invoked whenever the user asks — even generically — to implement, build, add, fix, refactor, or "use the agents" / "use the team" on a target project, not only for fully detailed requests. If in doubt whether a request warrants this skill, prompt the user rather than silently proceeding solo.
 ---
 
 # Development Team Workflow
 
 Entry point for any implementation task (new feature, bug fix, refactor, or other code change) in a target project. Replaces plan mode and manual exploration. The workflow is orchestrated by the root session with four specialized agents.
+
+## When to invoke
+
+Invoke this skill — do not implement solo — whenever the user asks for code work on a target project, **including generic or loosely-phrased requests**. Triggers are not limited to detailed feature specs; they include:
+
+- Any request to **implement, build, add, write, fix, debug, refactor, or change** code in a target project, however briefly worded.
+- Explicit requests to **"use the agents"**, "use the team", "run the dev team", "have the agents do it", or similar — these always route here.
+
+**If in doubt, prompt the user** (e.g. "Want me to run the dev-team for this, or handle it directly?") rather than silently proceeding solo. Default toward invoking the skill when the request plausibly involves changing a target project's code.
 
 ## Preconditions
 
