@@ -1,6 +1,6 @@
 ---
 name: generate-release
-description: Generate a proper GitHub release description for a target project from the ACTUAL changes since the previous release tag — never by copying the prior release's notes. Produces a bullet-pointed "New features" section (each feature bullet up to 200 words) and a "Bugfixes" section (each bugfix bullet at most 50 words), with every bullet linking to the use case(s) it came from, then writes it to the release. Use whenever a release is cut for a target project (server-vX, android-vX, vX, …), or standalone to (re)write the notes of an existing release.
+description: Generate a proper GitHub release description for a target project from the ACTUAL changes since the previous release tag — never by copying the prior release's notes. Produces a bullet-pointed "New features" section (each feature bullet up to 200 words) and a "Bugfixes" section (each bugfix bullet at most 50 words), with every bullet linking to the use case(s) it came from, then writes it to the release. Use whenever a release is cut for a target project (any release tag — a single `vX.Y.Z`, or per-component tags like `<component>-vX.Y.Z`), or standalone to (re)write the notes of an existing release.
 ---
 
 # Generate Release
@@ -31,12 +31,12 @@ The word caps are **per individual bullet**, not per section. Every bullet **lin
 
 ## Step 1 — Resolve the track and the tag range
 
-1. **`T_new`** — the tag this release is for (e.g. `android-v0.4.2`, `server-v0.0.32`, `v1.4.0`). If the user didn't give it, list recent tags (`git -C <TARGET_DIR> tag --sort=-creatordate | head`) and pick / confirm the one being released. `T_new` may already be tagged, or you may be writing notes just before tagging — both are fine.
+1. **`T_new`** — the tag this release is for (e.g. `v1.4.0`, or a per-component tag like `<component>-v2.3.0`). If the user didn't give it, list recent tags (`git -C <TARGET_DIR> tag --sort=-creatordate | head`) and pick / confirm the one being released. `T_new` may already be tagged, or you may be writing notes just before tagging — both are fine.
 
-2. **Track** — many repos ship multiple release tracks with a tag prefix (`server-v*`, `android-v*`). Derive the track from `T_new`'s prefix (the part before `-v` / `-`). The track scopes which changes belong in these notes so, e.g., an `android-v*` release never lists server-only work:
-   - If the prefix names a top-level directory or build module in the repo (e.g. `android/`, `server/`), scope the change set to that path.
-   - If `PROJECT_BRIEF.md` frontmatter declares release tracks (a `release.tracks` mapping of prefix → paths), use that verbatim.
-   - Otherwise (plain `vX.Y.Z`, single-component repo), the track is the whole repo — no path scoping.
+2. **Track** — some repos ship multiple release tracks, each with its own tag prefix (e.g. `<component>-vX.Y.Z`). Derive the track from `T_new`'s prefix (the part before the `-v` / trailing version). The track scopes which changes belong in these notes, so a release for one component never lists another component's work:
+   - If `PROJECT_BRIEF.md` frontmatter declares release tracks (a `release.tracks` mapping of prefix → paths), use that verbatim — it is the authoritative source.
+   - Else, if the prefix names a top-level directory or build module in the repo, scope the change set to that path.
+   - Otherwise (a plain `vX.Y.Z` tag, single-component repo, or an unrecognized prefix), the track is the whole repo — no path scoping.
 
 3. **`T_prev`** — the previous release tag *of the same track*: `git -C <TARGET_DIR> tag --list '<prefix>-v*' --sort=-v:refname` and take the newest entry that is not `T_new`. If there is no earlier track tag, this is the **first release** of the track — use the repo's first commit as the base and label it accordingly.
 
@@ -104,4 +104,4 @@ If `T_new` is not yet tagged (you're preparing notes ahead of the tag), do not c
 ## Notes
 
 - Re-running is safe: it recomputes from the range and overwrites the body with `gh release edit`.
-- Multi-track repos: run once per track being released (e.g. once for `server-v*`, once for `android-v*`), each scoped to its own paths, so each release lists only its own changes.
+- Multi-track repos: run once per track being released, each scoped to its own paths, so each release lists only its own changes.
