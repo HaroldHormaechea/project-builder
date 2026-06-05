@@ -166,9 +166,11 @@ When the profile IS active, run the following before Step 4. **All paths, builds
 
 ## Step 4 — Derive the team name and create the team + task list
 
-1. Read the YAML frontmatter of `<WORKDIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.
+1. Read the YAML frontmatter of `<WORKDIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it as the team-name base (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects. Then derive `TEAM_NAME`:
+   - **If `USE_CASE_FILE` is set**, suffix the base with the use case's number, **unpadded**: take the numeric prefix of the use-case filename stem (e.g. `01` from `01-foo.md`, `24` from `24-bar.md`), strip leading zeros, and append `-uc-<N>` → `TEAM_NAME = <project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `iriusrisk-core-uc-24`). This keeps concurrent use-case runs on the same project from sharing — and colliding on — one team.
+   - **If `USE_CASE_FILE` is `null`** (free-form task), `TEAM_NAME = <project.name>` with no suffix.
 2. Check whether `~/.claude/teams/<TEAM_NAME>/config.json` already exists. If it does, it is either an active team from a sibling Claude Code session or a stale leftover from a previous unclean run on this project. Read the `description` and `leadSessionId` fields from the config and surface them to the user via `AskUserQuestion`, with options:
-   - **Delete and re-create** — only choose if the user confirms the existing team is theirs to discard. Use `Bash` to `rm -rf ~/.claude/teams/<TEAM_NAME> ~/.claude/tasks/<TEAM_NAME>` after explicit user approval.
+   - **Tear down and re-create** — only choose if the user confirms the existing team is theirs to discard. Tear it down **completely** first: send `shutdown_request` to any teammate still registered under it, then use `Bash` to `rm -rf ~/.claude/teams/<TEAM_NAME> ~/.claude/tasks/<TEAM_NAME>` after explicit user approval. Only then proceed to `TeamCreate`. Never re-create on top of a partially-present team — a clean slate is mandatory (see `.claude/teams/dev-team/orchestrator.md` § "Team regeneration — always tear down completely first").
    - **Abort `develop` run** — bail out cleanly; do not call `TeamCreate`.
    Never silently delete an existing team.
 3. Call `TeamCreate` with `team_name: <TEAM_NAME>`. Never skip this.

@@ -1,6 +1,6 @@
 # Dev Team Orchestration
 
-These instructions are for the **root Claude Code session** acting as the development-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, `PROJECT_BRIEF.md`, and the runtime team have all been established. The runtime team's name is `<TEAM_NAME>`, derived by the `develop` skill from `PROJECT_BRIEF.md` frontmatter `project.name` (e.g. `yt-dlp-ui`, `iriusrisk-core`). The literal string `dev-team` referenced in path expressions below is the **template folder** containing role definitions; it is NOT the runtime team name.
+These instructions are for the **root Claude Code session** acting as the development-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, `PROJECT_BRIEF.md`, and the runtime team have all been established. The runtime team's name is `<TEAM_NAME>`, derived by the `develop` skill from `PROJECT_BRIEF.md` frontmatter `project.name` (e.g. `yt-dlp-ui`, `iriusrisk-core`). When the run is anchored to a use case, `develop` suffixes the name with the use case's unpadded number — `<project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `iriusrisk-core-uc-24`) — so concurrent use-case runs on one project never share a team. Use whatever `develop` passed you verbatim; do not re-derive it. The literal string `dev-team` referenced in path expressions below is the **template folder** containing role definitions; it is NOT the runtime team name.
 
 **CRITICAL: You are an orchestrator ONLY.** You MUST NOT read source code, explore the target folder, propose solutions, review proposals, write code, or write tests yourself. If you catch yourself doing any of that, stop and delegate to a spawned agent.
 
@@ -31,6 +31,21 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
 
 Always read the role file with `Read` before spawning — do not guess or paraphrase role content.
 
+## Team regeneration — always tear down completely first
+
+Any time an issue forces you to regenerate the team — a dead/unrecoverable agent (see *Liveness protocol*), a desynced or corrupted team, crossed inboxes that won't clear, or any situation where re-spawning a single role is not enough — you MUST tear the **entire** team down before recreating it. Never re-spawn one role into a half-broken team: partial regeneration leaves stale teammates, orphaned tasks, and crossed inboxes — the exact silent-stall failure mode this protocol exists to prevent. A clean slate is mandatory.
+
+**Full teardown + recreate routine:**
+
+1. **Tear down completely.** Send `shutdown_request` to **every** active teammate (analyst, challenger, developer, qa — whichever currently exist) and wait for them to drain. Then call `TeamDelete` to remove the runtime team `<TEAM_NAME>`; this clears all teammate state and the task list.
+2. **Recreate the team.** `TeamCreate` with `team_name: <TEAM_NAME>` (the same name `develop` passed you — including any `-uc-<N>` suffix), then recreate the three tasks with the same dependencies as `develop` Step 4 (Task 1 *Analysis & Challenge* unblocked; Task 2 *Implementation* blocked by 1; Task 3 *Testing* blocked by 2).
+3. **Re-spawn from the interrupted phase**, not blindly from Phase 1:
+   - **Phase 1** → re-spawn fresh `analyst` + `challenger`, restart the peer loop from scratch with the same `USE_CASE_FILE` / task description. Discard any partial proposal. The 6-round peer cap resets.
+   - **Phase 2** → re-spawn a fresh `developer` with the same approved proposal and a one-line note that this is a restart after a team regeneration. The 6-round developer cap resets.
+   - **Phase 3** → re-spawn a fresh `qa` with the same approved proposal and developer change summary. The 6-round QA cap resets.
+
+Count regenerations per role across the run. On the **second** forced regeneration of the same role, do not regenerate again — stop, set the ledger row to `blocked`, run step 1 (full teardown), and escalate to the user.
+
 ## Liveness protocol — idle nudge and restart
 
 Spawned agents can go idle silently after receiving a message they should have acted on (an observed wake-up failure mode). To protect the run from indefinite stalls, apply this protocol to **every** spawned agent across all phases — Phase 1 peer loop (analyst, challenger), Phase 2 developer loop, Phase 3 QA loop.
@@ -41,11 +56,8 @@ For every message you send that requires a substantive reply (initial proposal h
 
 1. **Within 5 minutes of message delivery** the agent should produce a substantive response — a `SendMessage` carrying the expected content (proposal, verdict, changes summary, test summary, fix summary). An `idle_notification` alone does NOT count as a substantive reply.
 2. **At the 5-minute mark with no substantive reply**: send a **nudge** to the agent via `SendMessage`. Phrase it as a direct prod, name the message they should be acting on (timestamp it if useful), and ask them to proceed. Reset the 5-minute window from the moment the nudge is delivered.
-3. **At the 10-minute mark (5 minutes after the nudge) still no substantive reply**: declare the agent **dead** and recover:
-   - **Phase 1 — analyst or challenger went dead**: send `shutdown_request` to BOTH analyst and challenger, wait for them to drain, then re-spawn fresh `analyst` and `challenger` agents and restart the peer loop from scratch with the same `USE_CASE_FILE` / task description. Discard any prior partial proposal — start clean. The 6-round peer-loop cap resets.
-   - **Phase 2 — developer went dead**: send `shutdown_request` to the developer, re-spawn a fresh `developer` agent with the same approved proposal and a one-line note that this is a restart after a liveness failure. The 6-round developer-loop cap resets.
-   - **Phase 3 — qa went dead**: send `shutdown_request` to QA, re-spawn a fresh `qa` agent with the same approved proposal and developer change summary. The 6-round QA-loop cap resets.
-4. If any single role dies **twice in the same run**, stop. Set the ledger row to `blocked`, send `shutdown_request` to every active teammate, call `TeamDelete`, and escalate to the user — repeated liveness failure points at a systemic issue, not a flake.
+3. **At the 10-minute mark (5 minutes after the nudge) still no substantive reply**: declare the agent **dead** and recover by running the **full teardown + recreate routine** (see *Team regeneration — always tear down completely first*), resuming from the phase that was interrupted (Phase 1 → re-spawn analyst + challenger; Phase 2 → re-spawn developer; Phase 3 → re-spawn qa). Do **not** surgically re-spawn just the dead role into the surviving team — tear the **whole** team down first, then recreate it. The 6-round cap for the resumed phase resets.
+4. If a forced regeneration recurs **twice in the same run** for the same role, stop. Set the ledger row to `blocked`, run the full teardown (`shutdown_request` to every active teammate, then `TeamDelete`), and escalate to the user — repeated liveness failure points at a systemic issue, not a flake.
 
 This protocol applies to all `SendMessage` exchanges. Spawn-time hand-offs count too — the moment you spawn an agent and assign their initial task, the 5/10-minute clock starts on whatever first substantive action you expect from them (typically the analyst's initial proposal or the developer's change summary).
 
