@@ -7,7 +7,7 @@ These instructions are for the **root Claude Code session** acting as the develo
 ## Inputs available at this point
 
 - `SESSION_DIR` — the folder hosting these instructions. Off-limits to every spawned agent.
-- `TARGET_DIR` — the project folder to work in.
+- `TARGET_DIR` — the project folder to work in. When `develop` isolated the run in a git worktree (the default), this is the **worktree path** (`WORKDIR`) with the work branch already checked out; every read, write, build, test, and git operation happens here. It is the user's original checkout only when worktree isolation was skipped.
 - `PROJECT_BRIEF.md` — lives inside `TARGET_DIR`; it defines architecture, tech stack, production vs. test paths, and quality standards.
 - `USE_CASE_FILE` — an absolute path to a single use-case Markdown file inside `<TARGET_DIR>/<use_cases.folder>`, or `null` if the run is free-form. Resolved by the `develop` skill before hand-off.
 - The user's task description (ignored when `USE_CASE_FILE` is set — the use case's `## Summary` section is the task).
@@ -90,6 +90,8 @@ Before Phase 2, present the approved plan to the user:
 Proceed to Phase 2 right after. No explicit re-approval needed; the user can interrupt.
 
 ## Pre-implementation — Branching
+
+**If `develop` already isolated this run in a worktree** (it passed `WORKDIR` as your `TARGET_DIR` and told you the work branch is already created and checked out), the branch already exists here — set `WORK_BRANCH` to the current branch (`git -C <TARGET_DIR> rev-parse --abbrev-ref HEAD`) and **SKIP the rest of this section**. You cannot check out the default branch inside a worktree anyway. Run the steps below ONLY when working in place (no worktree).
 
 Before spawning the developer in Phase 2, put the work on its own branch. New code MUST NOT land directly on the project's default branch.
 

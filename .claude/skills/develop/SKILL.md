@@ -51,19 +51,41 @@ The development team can be anchored to a specific use-case file. Resolve `USE_C
 
 If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as the task description. The file's other sections (acceptance criteria, pitfalls) will be forwarded to the role agents verbatim in Step 5.
 
-## Step 2c — Acquire the target project's skills
+## Step 2c — Isolate the run in a fresh git worktree (default)
 
-If `<TARGET_DIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `TARGET_DIR`, so any skills the project ships become usable in this session. It symlinks them into `~/.claude/skills/`, records them in the gitignored ledger, and the `SessionEnd` hook removes them on exit. Skip silently if the folder is absent (most freshly scaffolded projects have none). See CLAUDE.md § "Acquiring a target project's skills".
+By **default**, `develop` runs the whole team inside a **new git worktree** cut from `TARGET_DIR` on the work branch — never in `TARGET_DIR`'s own checkout. This isolates the run so a second Claude session (or the user) working in `TARGET_DIR` at the same time cannot collide on files, the index, or the branch. Define `WORKDIR` — the run's effective working folder — and use it in **every** later step (2d, 3a, 3b, 4, 5, the orchestrator's phases, Completion) wherever those steps say `TARGET_DIR` as the place to read, write, build, test, or run git. `WORKDIR` equals `TARGET_DIR` only when worktree isolation is skipped (below). The brief, use-case files, and ledger all live inside `WORKDIR` because a worktree is a full checkout.
+
+**Skip worktree creation (work in place, `WORKDIR = TARGET_DIR`) only when:**
+- `PROJECT_BRIEF.md` frontmatter `vcs.enabled` is `false` or absent — there is no git repo to branch.
+- The user asked to avoid it this run — e.g. "no worktree", "work in place", "use the existing folder", "don't isolate". Honor an explicit opt-out; do not re-prompt.
+- `TARGET_DIR` is already a dedicated, non-default-branch worktree the user pointed you at for this work (`git -C <TARGET_DIR> rev-parse --is-inside-work-tree` is true and its checked-out branch is not `vcs.default_branch`). The isolation already exists — reuse it as `WORKDIR`.
+
+**Create the worktree (default path):**
+1. Derive `WORK_BRANCH` exactly as the orchestrator's *Pre-implementation — Branching* section does: use-case stem → `feat/uc-<stem>`; else a ≤40-char kebab slug of the task → `feat/<slug>`; append `-2`, `-3`… until `git -C <TARGET_DIR> rev-parse --verify <branch>` fails (unique).
+2. Choose `WORKDIR` as a sibling of `TARGET_DIR`: `<parent-of-TARGET_DIR>/<basename-of-TARGET_DIR>-<branch-leaf>`, where `<branch-leaf>` is the segment of `WORK_BRANCH` after the last `/`. Refuse any path that equals, contains, or sits inside `SESSION_DIR`; pick another sibling name on collision.
+3. Sync the base and add the worktree on the new branch:
+   - When `vcs.remote` is set: `git -C <TARGET_DIR> fetch origin`; base = `origin/<vcs.default_branch>`.
+   - Otherwise base = local `<vcs.default_branch>`.
+   - `git -C <TARGET_DIR> worktree add <WORKDIR> -b <WORK_BRANCH> <base>`.
+   - If a worktree for this branch/path already exists (a re-run), reuse it (`git -C <TARGET_DIR> worktree list` to detect) rather than failing — this keeps re-runs idempotent.
+4. The work branch is now **already created and checked out** in `WORKDIR`. Record this for Step 5 so the orchestrator SKIPS cutting a branch in *Pre-implementation — Branching* (you cannot check out the default branch inside a worktree anyway).
+5. Inform the user in one line: the run is isolated in `<WORKDIR>` on `<WORK_BRANCH>`; `TARGET_DIR` is left untouched; the worktree stays until the PR is merged (Step 6 offers cleanup).
+
+## Step 2d — Acquire the target project's skills
+
+If `<WORKDIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `WORKDIR`, so any skills the project ships become usable in this session. It symlinks them into `~/.claude/skills/`, records them in the gitignored ledger, and the `SessionEnd` hook removes them on exit. Skip silently if the folder is absent (most freshly scaffolded projects have none). See CLAUDE.md § "Acquiring a target project's skills".
 
 ## Step 3 — Describe and confirm
 
-Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
+Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Also note that the run is isolated in a fresh git worktree by default (Step 2c) — `TARGET_DIR` is left untouched — and that they can ask to work in place instead. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
 
 ## Step 3a — Grant TARGET_DIR-scoped permissions (recommended)
 
-Before spawning agents (which will perform many file writes and bash invocations inside `TARGET_DIR`), first invoke the `check-permissions-mode` skill via the `Skill` tool.
+Before spawning agents (which will perform many file writes and bash invocations inside `WORKDIR`), first invoke the `check-permissions-mode` skill via the `Skill` tool.
 
 If it reports bypass permissions is **ON**, **skip this entire step** — bypass permissions mode auto-approves every tool call, so adding rules to `settings.local.json` is unnecessary. Proceed directly to Step 4.
+
+**Scope to `WORKDIR`.** Everywhere `<TARGET_DIR>` appears in the rules below, substitute `WORKDIR` (the worktree from Step 2c) — that is where the agents actually write and run git. When isolation was skipped, `WORKDIR` = `TARGET_DIR` and the rules are unchanged.
 
 Otherwise, prompt the user once to add blanket scoped permissions for that folder to `<SESSION_DIR>/.claude/settings.local.json`. Without this, agent runs accumulate dozens of per-action permission prompts. Permissions are scoped to the target folder only — nothing else on disk is affected.
 
@@ -103,7 +125,7 @@ The step is idempotent: re-running on a project where the rules already exist re
 
 Skip this step entirely unless `PROJECT_BRIEF.md` → frontmatter `profiles` list contains `profile-java-call-graph-tool`. The full contract this step honours is in `.claude/skills/profile-java-call-graph-tool/SKILL.md` — read it once before running the procedure below.
 
-When the profile IS active, run the following before Step 4:
+When the profile IS active, run the following before Step 4. **All paths, builds, and the `.mcp.json` in this step are under `WORKDIR` (the worktree from Step 2c), not the original `TARGET_DIR`** — substitute `WORKDIR` for `TARGET_DIR` throughout:
 
 1. **Resolve cache directory.** Pick the per-OS path:
    - Linux / Unix: `${XDG_CACHE_HOME:-$HOME/.cache}/project-builder/java-class-call-scanning/`
@@ -144,7 +166,7 @@ When the profile IS active, run the following before Step 4:
 
 ## Step 4 — Derive the team name and create the team + task list
 
-1. Read the YAML frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.
+1. Read the YAML frontmatter of `<WORKDIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it verbatim as `TEAM_NAME` (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects.
 2. Check whether `~/.claude/teams/<TEAM_NAME>/config.json` already exists. If it does, it is either an active team from a sibling Claude Code session or a stale leftover from a previous unclean run on this project. Read the `description` and `leadSessionId` fields from the config and surface them to the user via `AskUserQuestion`, with options:
    - **Delete and re-create** — only choose if the user confirms the existing team is theirs to discard. Use `Bash` to `rm -rf ~/.claude/teams/<TEAM_NAME> ~/.claude/tasks/<TEAM_NAME>` after explicit user approval.
    - **Abort `develop` run** — bail out cleanly; do not call `TeamCreate`.
@@ -159,11 +181,13 @@ When the profile IS active, run the following before Step 4:
 
 Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. The path stays `dev-team/` because that is the **template folder** containing role definitions — the runtime team name is `<TEAM_NAME>`, not `dev-team`. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
 
-Pass `TEAM_NAME` and `USE_CASE_FILE` (the absolute path, or `null`) into the orchestration. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
+Pass `TEAM_NAME`, `USE_CASE_FILE` (the absolute path, or `null`), and `WORKDIR` into the orchestration. **The orchestrator uses `WORKDIR` as its `TARGET_DIR`** — every read, write, build, test, ledger update, agent spawn path, and git operation happens in `WORKDIR`. If Step 2c created a worktree, also tell the orchestrator the work branch `<WORK_BRANCH>` is **already created and checked out** in `WORKDIR`, so it MUST skip the in-place branch-cut in its *Pre-implementation — Branching* section. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
 
 ## Step 6 — Tear down
 
 When all phases complete (or on user-requested abort), send `shutdown_request` to every active teammate, then call `TeamDelete` to remove the runtime team (`<TEAM_NAME>`). `TeamDelete` uses the current session's team context — no name argument needed. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected; it is the workspace's role-definition library and is shared across all projects.
+
+**Worktree cleanup (when Step 2c created one).** Leave the worktree in place until its branch is no longer needed — the open PR depends on the pushed branch, and the user may want to inspect or iterate locally before merge. Never remove it before Completion has pushed the branch. After the PR is open, tell the user the worktree exists at `<WORKDIR>` on `<WORK_BRANCH>` and offer to remove it (`git -C <TARGET_DIR> worktree remove <WORKDIR>` — add `--force` if it holds untracked build artifacts — then `git -C <TARGET_DIR> worktree prune`). Default to keeping it until the user confirms the PR is merged; never delete the branch itself (the PR needs it). On a blocked/aborted run, keep the worktree so the user can inspect the partial work.
 
 ## Non-negotiables
 
