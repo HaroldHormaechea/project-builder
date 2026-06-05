@@ -25,7 +25,7 @@ If the command returns output, **skip Step 3a entirely** — bypass permissions 
 
 A target project can ship its own skills under `<TARGET_DIR>/.claude/skills/`. Because the Claude session is launched from this workspace (not the target), those project-local skills are not loaded automatically. The **`acquire-project-skills` skill** bridges this: it symlinks each target skill into the user's personal skills folder (`~/.claude/skills/`), which Claude Code watches and hot-reloads, so the project's skills become callable in the current session.
 
-**When it runs.** All four entry points invoke `acquire-project-skills` once `TARGET_DIR` is resolved, before doing their real work (`develop` Step 2c, `define-use-case` Step 2b, `revise-brief` Step 1b; for `project-builder`, the root session runs it when continuing an existing repo that ships skills). It is also user-invocable standalone ("load the skills from project X"). Re-running is idempotent.
+**When it runs.** All four entry points invoke `acquire-project-skills` once `TARGET_DIR` is resolved, before doing their real work (`develop` Step 2d, `define-use-case` Step 2b, `revise-brief` Step 1b; for `project-builder`, the root session runs it when continuing an existing repo that ships skills). It is also user-invocable standalone ("load the skills from project X"). Re-running is idempotent.
 
 **Mechanics.**
 - Implementation lives in `.claude/scripts/acquire-project-skills.sh` (link + ledger upsert) and `.claude/scripts/release-project-skills.sh` (unlink + ledger prune + dangling-symlink safety sweep). The skill is a thin wrapper around the acquire script.
@@ -85,6 +85,8 @@ The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before
 When the user asks to implement a feature, fix a bug, refactor, or make any code change in an existing target project, invoke the `develop` skill **from the root session**. Do not enter plan mode and do not start exploring manually — the skill replaces that.
 
 The skill orchestrates a four-agent team (`analyst`, `challenger`, `developer`, `qa`) with peer review, capped feedback loops, and role-scoped write permissions. Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not hardcoded.
+
+By default the skill **isolates the run in a fresh git worktree** cut from `TARGET_DIR` on the work branch (`develop` Step 2c), so a concurrent session working in `TARGET_DIR` can't collide on files, index, or branch; the whole team then operates in that worktree (`WORKDIR`). The user can opt out per run ("no worktree" / "work in place"), and it is auto-skipped when the project isn't a git repo. The worktree is left in place until its PR merges (Step 6 offers cleanup).
 
 Must be invoked from the root session: spawned subagents cannot spawn further agents, so nested invocation will fail. If `PROJECT_BRIEF.md` is missing from the target folder, the skill first spawns `project-builder` to generate one, then proceeds.
 
