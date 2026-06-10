@@ -88,6 +88,8 @@ This applies to **generic or loosely-phrased requests too** — any ask to imple
 
 The skill orchestrates a four-agent team (`analyst`, `challenger`, `developer`, `qa`) with peer review, capped feedback loops, and role-scoped write permissions. Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not hardcoded.
 
+When `develop` is triggered **directly** (not chained from a `define-use-case` call), it first offers to formalize a use case before building (`develop` Step 2b): the user can **define a use case first** — which hands off to `define-use-case`, which chains back into `develop` with the saved file — or **go ahead without one** (free-form task, or pick an existing pending/blocked use case). Runs that arrive *from* `define-use-case` (a use-case file is passed in) skip this offer, as do runs invoked with an explicit use-case path.
+
 By default the skill **isolates the run in a fresh git worktree** cut from `TARGET_DIR` on the work branch (`develop` Step 2c), so a concurrent session working in `TARGET_DIR` can't collide on files, index, or branch; the whole team then operates in that worktree (`WORKDIR`). The user can opt out per run ("no worktree" / "work in place"), and it is auto-skipped when the project isn't a git repo. The worktree is left in place until its PR merges (Step 6 offers cleanup).
 
 Must be invoked from the root session: spawned subagents cannot spawn further agents, so nested invocation will fail. If `PROJECT_BRIEF.md` is missing from the target folder, the skill first spawns `project-builder` to generate one, then proceeds.

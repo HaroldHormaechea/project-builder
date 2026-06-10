@@ -51,12 +51,19 @@ Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not
 
 The development team can be anchored to a specific use-case file. Resolve `USE_CASE_FILE` (an absolute path inside `TARGET_DIR`, or `null`) before proceeding:
 
-1. **Invoked via the Skill tool from `define-use-case`**: the caller passes the just-saved file path in the invocation arguments. Use it verbatim, confirm it exists, and skip to Step 3.
+1. **Invoked via the Skill tool from `define-use-case`**: the caller passes the just-saved file path in the invocation arguments. Use it verbatim, confirm it exists, and skip to Step 3. The use case was *just* defined, so do **not** run the "define a use case first?" offer below.
 2. **Invoked directly by the user without arguments**:
+   - **Offer to define a use case first.** Because this run did **not** originate from a `define-use-case` call, ask the user via `AskUserQuestion` before resolving anything else:
+     - Question: `This run didn't come from a use-case definition. Define a use case first, or go straight to implementation?`
+     - Options:
+       - **Define a use case first** — formalize the work as a use case before building. Choose this when the task is non-trivial or under-specified and would benefit from acceptance criteria.
+       - **Go ahead without one** — proceed straight to implementation as a free-form task (or pick an existing pending/blocked use case below).
+     - If the user picks **Define a use case first**: invoke the `define-use-case` skill via the `Skill` tool, passing the resolved `TARGET_DIR`. That skill captures and saves the use case, then (via its Step 7 "Continue to implementation") chains back into `develop` with the saved file as the use-case argument — which lands in branch 1 above and skips this offer. **Hand off and stop the current `develop` flow here**; the chained invocation continues from Step 2c onward. Do not also run the free-form resolution below.
+     - If the user picks **Go ahead without one**: continue with the resolution below.
    - Read the frontmatter of `<TARGET_DIR>/PROJECT_BRIEF.md`. If `use_cases.index` resolves to an existing ledger, list the rows whose `Status` is `pending` or `blocked` and offer them to the user via `AskUserQuestion`, plus a "No use case — free-form task" option.
    - If the user picks a use case, set `USE_CASE_FILE` to the absolute path of that file.
    - If the user picks "No use case", set `USE_CASE_FILE = null` and capture the task description from the user as before.
-3. **Invoked by the user with an explicit path**: use it verbatim. Confirm it exists and is inside `<TARGET_DIR>/<use_cases.folder>`; refuse otherwise.
+3. **Invoked by the user with an explicit path**: use it verbatim. Confirm it exists and is inside `<TARGET_DIR>/<use_cases.folder>`; refuse otherwise. The user pointed at an existing use case, so skip the "define a use case first?" offer.
 
 If `USE_CASE_FILE` is set, read the file now and use its `## Summary` section as the task description. The file's other sections (acceptance criteria, pitfalls) will be forwarded to the role agents verbatim in Step 5.
 
