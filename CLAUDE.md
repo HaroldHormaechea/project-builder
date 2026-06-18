@@ -6,13 +6,15 @@ This workspace hosts four Claude Code entry points that operate on a **target pr
 
 ## Permissions prompt behaviour
 
-Before showing the Step 3a permissions grant prompt (in `develop`, `revise-brief`, or any entry point), check whether the session is running with `--dangerously-skip-permissions`:
+Before showing the Step 3a permissions grant prompt (in `develop`, `revise-brief`, or any entry point), check whether the session is running with `--dangerously-skip-permissions`. Drive the assessment off the command's **exit (return) code**, not its stdout — shell output filters/proxies (e.g. RTK token compression) can rewrite or strip stdout and corrupt an output-based check, whereas the exit code is unaffected:
 
 ```
-ps aux | grep "claude.*dangerously-skip-permissions" | grep -v grep
+! ps aux | grep -q "[c]laude.*dangerously-skip-permissions"
 ```
 
-If the command returns output, **skip Step 3a entirely** — bypass permissions mode already auto-approves every tool call, so prompting the user to update `.claude/settings.local.json` is redundant. Proceed directly to the next step.
+This produces no output by design. **Exit code `0` → bypass is OFF**; **exit code `1` → bypass is ON**. (`grep -q` keeps stdout empty, the leading `!` inverts grep's natural match result into the `0`=OFF / `1`=ON convention, and the `[c]laude` bracket pattern stops grep from matching its own process.)
+
+If the exit code is `1` (bypass ON), **skip Step 3a entirely** — bypass permissions mode already auto-approves every tool call, so prompting the user to update `.claude/settings.local.json` is redundant. Proceed directly to the next step.
 
 ## Hard rules (all entry points)
 
