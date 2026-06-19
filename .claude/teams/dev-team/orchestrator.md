@@ -10,6 +10,8 @@ These instructions are for the **root Claude Code session** acting as the develo
 - `TARGET_DIR` — the project folder to work in. When `develop` isolated the run in a git worktree (the default), this is the **worktree path** (`WORKDIR`) with the work branch already checked out; every read, write, build, test, and git operation happens here. It is the user's original checkout only when worktree isolation was skipped.
 - `PROJECT_BRIEF.md` — lives inside `TARGET_DIR`; it defines architecture, tech stack, production vs. test paths, and quality standards.
 - `USE_CASE_FILE` — an absolute path to a single use-case Markdown file inside `<TARGET_DIR>/<use_cases.folder>`, or `null` if the run is free-form. Resolved by the `develop` skill before hand-off.
+- `PLAN_FILE` — an absolute path inside `TARGET_DIR` where the approved implementation plan is (or will be) persisted. Resolved deterministically by `develop` Step 2e. You write it after Phase 1 approval and forward its path to the developer and QA — see § "Implementation plan artifact".
+- `RESUME_FROM_PLAN` — boolean. When `true`, an approved plan already exists at `PLAN_FILE` (a prior run was interrupted); skip Phase 1 entirely and implement the saved plan. When `false`, run Phase 1 normally and write `PLAN_FILE` on approval.
 - The user's task description (ignored when `USE_CASE_FILE` is set — the use case's `## Summary` section is the task).
 
 ## Spawning pattern
@@ -25,6 +27,7 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
   - The absolute path of `TARGET_DIR`
   - A directive to read `PROJECT_BRIEF.md` from `TARGET_DIR` before any other action
   - If `USE_CASE_FILE` is set: a directive to read it immediately after the brief and treat its `## Summary` as the task, its `## Acceptance Criteria` as the verifiable contract, and its `## Potential Pitfalls & Open Questions` as items to address explicitly in their output
+  - **For the developer and QA only**: the absolute path `PLAN_FILE`, with a directive to read it (the persisted, approved implementation plan) as the authoritative description of what to build. The plan path is forwarded alongside the use-case path — both are inputs the agent reads itself; do not paste the plan's contents into the spawn prompt. (The analyst and challenger never receive `PLAN_FILE` — they produce the plan, they do not consume it.)
   - A hard prohibition on writing anywhere outside `TARGET_DIR` (and specifically nothing inside `SESSION_DIR`)
   - A hard prohibition on writing to the use-case ledger (`<TARGET_DIR>/<use_cases.index>`): ledger writes are the orchestrator's sole responsibility
   - If `profile-java-call-graph-tool` is active and `develop` Step 3b ran: the absolute path of the cached jar as `JAVA_CALL_GRAPH_JAR`, with a note that the agent should use the MCP tools prefixed `mcp__java-class-call-scanning__` when present and fall back to the CLI surface against `JAVA_CALL_GRAPH_JAR` otherwise — see the profile SKILL.md for per-role usage
@@ -41,8 +44,8 @@ Any time an issue forces you to regenerate the team — a dead/unrecoverable age
 2. **Recreate the team.** `TeamCreate` with `team_name: <TEAM_NAME>` (the same name `develop` passed you — including any `-uc-<N>` suffix), then recreate the three tasks with the same dependencies as `develop` Step 4 (Task 1 *Analysis & Challenge* unblocked; Task 2 *Implementation* blocked by 1; Task 3 *Testing* blocked by 2).
 3. **Re-spawn from the interrupted phase**, not blindly from Phase 1:
    - **Phase 1** → re-spawn fresh `analyst` + `challenger`, restart the peer loop from scratch with the same `USE_CASE_FILE` / task description. Discard any partial proposal. The 6-round peer cap resets.
-   - **Phase 2** → re-spawn a fresh `developer` with the same approved proposal and a one-line note that this is a restart after a team regeneration. The 6-round developer cap resets.
-   - **Phase 3** → re-spawn a fresh `qa` with the same approved proposal and developer change summary. The 6-round QA cap resets.
+   - **Phase 2** → re-spawn a fresh `developer` pointed at the same `PLAN_FILE` (the approved plan is already persisted there) and a one-line note that this is a restart after a team regeneration. The 6-round developer cap resets.
+   - **Phase 3** → re-spawn a fresh `qa` pointed at the same `PLAN_FILE` and the developer change summary. The 6-round QA cap resets.
 
 Count regenerations per role across the run. On the **second** forced regeneration of the same role, do not regenerate again — stop, set the ledger row to `blocked`, run step 1 (full teardown), and escalate to the user.
 
@@ -77,7 +80,33 @@ Before the first update, read the ledger and confirm a matching row exists. If i
 
 If `USE_CASE_FILE` is `null`, skip all ledger work — there is nothing to track.
 
+## Implementation plan artifact
+
+`PLAN_FILE` is the single persisted source of truth for what the team builds: the analyst↔challenger **approved proposal**, written to disk so the developer and QA implement from a fixed artifact rather than an in-memory message, and so an interrupted run (quota exhausted, session killed) can be recovered. You — the root session — are its only writer, exactly as you are for the ledger. The analyst and challenger stay read-only; persisting the proposal you *received* from them is a coordination-artifact write, not "doing the agents' work" (you author nothing — you transcribe their approved output), so it does not violate the orchestrator-only rule.
+
+**Writing the plan (after Phase 1 approval, when `RESUME_FROM_PLAN` is false).** As soon as the challenger sends you the final approved proposal:
+
+1. Ensure the parent folder exists: `mkdir -p "$(dirname <PLAN_FILE>)"` (e.g. `…/use-cases/plans/` or `…/.dev-team/plans/`).
+2. Write the approved proposal verbatim to `PLAN_FILE` via the `Write` tool, prefixed with a small YAML header so the file is self-describing and `develop`'s recovery check (Step 2e) can show what it covers:
+
+   ```markdown
+   ---
+   plan_for: <relative path from TARGET_DIR to USE_CASE_FILE, or "(free-form task)">
+   work_branch: <WORK_BRANCH>
+   team: <TEAM_NAME>
+   approved: <YYYY-MM-DD>
+   ---
+
+   <the challenger-approved proposal in full: Analysis, Proposed Solution,
+   Files Affected, Risks & Considerations — plus the challenger's final verdict>
+   ```
+3. The file lives inside `TARGET_DIR` (the worktree), so it is staged by the normal `git add -A` at the next checkpoint and at Completion — it travels with the PR. Do **not** give it a dedicated commit; let it ride with the work. It is exempt from the developer's/QA's `paths.production` / `paths.test` write scopes because *you* write it, not them.
+
+**Resuming from a saved plan (`RESUME_FROM_PLAN` is true).** Skip Phase 1 completely — do **not** spawn the analyst or challenger, and do not re-derive or overwrite `PLAN_FILE`. Instead: run the Phase 1 ledger update (set the row to `in-progress`), `Read` `PLAN_FILE`, then go straight to *Plan preview* (sourced from the saved plan) and on to branching / Phase 2 / Phase 3. The developer and QA receive the same `PLAN_FILE` path they would on a fresh run.
+
 ## Phase 1 — Analysis & Challenge (peer loop)
+
+**If `RESUME_FROM_PLAN` is true, skip this entire phase** — a previously approved plan already exists at `PLAN_FILE`. Do not spawn the analyst or challenger and do not overwrite the file. Run step 1a below (ledger → `in-progress`), then jump straight to *Plan preview* using the saved plan. See § "Implementation plan artifact".
 
 The analyst and challenger iterate directly with each other. You spawn both, then wait for the approved proposal.
 
@@ -88,18 +117,19 @@ The analyst and challenger iterate directly with each other. You spawn both, the
    - `challenger` — instructed to wait for the analyst's proposal before doing anything.
 3. Assign Task 1 to `analyst` via `TaskUpdate`.
 4. Wait for the challenger to send the **final approved** proposal to the team lead. Do not relay intermediate messages between them — they communicate peer-to-peer.
+4a. **Persist the approved proposal to `PLAN_FILE`** before the plan preview, following § "Implementation plan artifact" (write step). This is the source of truth the developer and QA will read.
 5. If the peer loop exceeds **6 rounds** without resolution, the challenger will escalate to you. Stop, summarize the disagreement to the user, and ask them to decide.
 
 ## Plan preview (mandatory)
 
-Before Phase 2, present the approved plan to the user:
+Before Phase 2, present the approved plan to the user. Source it from `PLAN_FILE` — the artifact you just wrote (fresh run) or read (resume) — so the preview matches exactly what the developer and QA will implement:
 
 - Summary of the proposal
 - Key design decisions
 - Files to modify or create (from the proposal)
 - Trade-offs considered and rejected
 
-Proceed to Phase 2 right after. No explicit re-approval needed; the user can interrupt.
+Mention the plan is saved at `PLAN_FILE` (committed with the work) and on a resumed run note that the analyst/challenger phase was skipped. Proceed to Phase 2 right after. No explicit re-approval needed; the user can interrupt.
 
 ## Pre-implementation — Branching
 
@@ -126,7 +156,7 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 ## Phase 2 — Implementation
 
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/developer.md`.
-2. Spawn `developer` via the Agent tool with the role file, the task, `TARGET_DIR`, and the approved proposal.
+2. Spawn `developer` via the Agent tool with the role file, the task, `TARGET_DIR`, and `PLAN_FILE` (the path to the persisted approved plan — instruct the developer to read it; do not paste its contents).
 3. Assign Task 2 to `developer` via `TaskUpdate`.
 4. Feedback loop (cap **6 rounds**):
    - If the developer reports the proposal is infeasible, forward the issue to `analyst` via `SendMessage`, wait for a revised proposal, then forward the revision to `developer`.
@@ -136,7 +166,7 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 ## Phase 3 — Testing
 
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/qa.md`.
-2. Spawn `qa` via the Agent tool with the role file, the task, `TARGET_DIR`, the approved proposal, and a summary of the developer's changes.
+2. Spawn `qa` via the Agent tool with the role file, the task, `TARGET_DIR`, `PLAN_FILE` (the persisted approved plan — instruct QA to read it), and a summary of the developer's changes.
 3. Assign Task 3 to `qa` via `TaskUpdate`.
 4. Feedback loop (cap **6 rounds**):
    - If QA reports bugs, forward them to `developer` via `SendMessage`, wait for fixes, then forward the fix summary to `qa`.

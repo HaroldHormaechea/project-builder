@@ -94,6 +94,8 @@ When `develop` is triggered **directly** (not chained from a `define-use-case` c
 
 By default the skill **isolates the run in a fresh git worktree** cut from `TARGET_DIR` on the work branch (`develop` Step 2c), so a concurrent session working in `TARGET_DIR` can't collide on files, index, or branch; the whole team then operates in that worktree (`WORKDIR`). The user can opt out per run ("no worktree" / "work in place"), and it is auto-skipped when the project isn't a git repo. The worktree is left in place until its PR merges (Step 6 offers cleanup).
 
+Once the analyst and challenger reach agreement, the orchestrator persists the approved proposal to an **implementation-plan file** (`PLAN_FILE`) inside `WORKDIR` and forwards *its path* — alongside the use-case file path — to the developer and QA, who implement and verify against that fixed artifact rather than an in-memory message. See § "Implementation plan artifact (`PLAN_FILE`)" for location, ownership, and the recovery flow.
+
 Must be invoked from the root session: spawned subagents cannot spawn further agents, so nested invocation will fail. If `PROJECT_BRIEF.md` is missing from the target folder, the skill first spawns `project-builder` to generate one, then proceeds.
 
 The runtime team name is `project.name` from the brief; when the run is anchored to a use case it is suffixed with the use case's **unpadded** number — `<project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `…-uc-24`) — so concurrent use-case runs never share a team. **Team regeneration is always a complete teardown first:** any time an issue forces regenerating the team (a dead agent, a stale/desynced team), the orchestrator sends `shutdown_request` to every teammate and calls `TeamDelete` before re-creating — it never re-spawns one role into a half-broken team. See `.claude/teams/dev-team/orchestrator.md` § "Team regeneration — always tear down completely first".
@@ -201,6 +203,20 @@ Statuses:
 Role agents (analyst, challenger, developer, qa) MUST NOT write to the ledger. Their scope is the project codebase; ledger mutation is a single-writer responsibility held by the root session during a `develop` run.
 
 If the ledger is missing when the orchestrator needs to update it (e.g., the use-case file was moved in by hand), the orchestrator stops and escalates — it does not silently create or repair the ledger. Ledger creation belongs to `define-use-case`.
+
+## Implementation plan artifact (`PLAN_FILE`)
+
+Every `develop` run persists the analyst↔challenger **approved proposal** to a single Markdown file — the *implementation plan* — which is the fixed source of truth the developer and QA build and verify against, and the anchor for recovering an interrupted run (Claude quota exhausted, session terminated mid-flight). It complements the use-case file: the use case says *what* the project should do; the plan says *how* this run will do it.
+
+**Path (`PLAN_FILE`, resolved deterministically by `develop` Step 2e, inside `WORKDIR`):**
+- Use-case run → `<use_cases.folder>/plans/<use-case-stem>.md` (default e.g. `use-cases/plans/01-foo.md`) — beside the use case it implements.
+- Free-form run → `.dev-team/plans/<branch-leaf>.md`, keyed on the work-branch leaf (or a kebab slug of the task when there is no branch).
+
+**Write ownership.** The **dev-team orchestrator (root session)** is the sole writer, exactly as for the ledger. It writes the file once, right after the challenger approves (Phase 1 §4a), transcribing the approved proposal verbatim under a small YAML header (`plan_for`, `work_branch`, `team`, `approved`). The analyst and challenger remain read-only — they *produce* the proposal but never write it to disk; the developer and QA *consume* `PLAN_FILE` (read-only) and MUST NOT edit it. Persisting received content is a coordination-artifact write, not authoring, so it does not breach the orchestrator-only rule.
+
+**Committed with the work.** `PLAN_FILE` lives in the worktree, so it is staged by the normal `git add -A` at the next checkpoint and at Completion — it travels with the PR as a durable record. It is exempt from the developer's/QA's `paths.production` / `paths.test` scopes because the orchestrator writes it, not them.
+
+**Recovery.** On a re-run, `develop` Step 2e checks the deterministic path. If an approved plan is already there (a prior run was interrupted), it offers via `AskUserQuestion` to **resume** (skip the analyst/challenger phase entirely and implement the saved plan) or **regenerate** (re-run Phase 1, overwriting the file). The orchestrator honors the choice via the `RESUME_FROM_PLAN` flag — see `.claude/teams/dev-team/orchestrator.md` § "Implementation plan artifact".
 
 ## Release notes (`generate-release`)
 

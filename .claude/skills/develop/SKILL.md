@@ -91,9 +91,27 @@ By **default**, `develop` runs the whole team inside a **new git worktree** cut 
 
 If `<WORKDIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill via the `Skill` tool, passing the resolved `WORKDIR`, so any skills the project ships become usable in this session. It symlinks them into `~/.claude/skills/`, records them in the gitignored ledger, and the `SessionEnd` hook removes them on exit. Skip silently if the folder is absent (most freshly scaffolded projects have none). See CLAUDE.md § "Acquiring a target project's skills".
 
+## Step 2e — Resolve the implementation-plan artifact and offer recovery
+
+Every run persists the analyst↔challenger **approved proposal** to a single Markdown file — the **implementation plan** — which becomes the fixed source of truth for what the developer and QA build, and the recovery anchor if the run is interrupted (Claude quota exhausted, session terminated mid-flight). Resolve its deterministic path `PLAN_FILE` now, before creating the team. The orchestrator writes it (Step 5 / `orchestrator.md` § "Implementation plan artifact"); `develop` only resolves the path and decides whether to resume.
+
+1. **Derive `PLAN_FILE`** (an absolute path inside `WORKDIR`):
+   - **When `USE_CASE_FILE` is set**: under a `plans/` subfolder of the brief's `use_cases.folder` (frontmatter, default `use-cases/`), named after the use-case filename stem → `<WORKDIR>/<use_cases.folder>/plans/<stem>.md` (e.g. `…/use-cases/plans/01-foo.md`). The plan sits beside the use case it implements.
+   - **When `USE_CASE_FILE` is `null`** (free-form): `<WORKDIR>/.dev-team/plans/<leaf>.md`, where `<leaf>` is the segment of `WORK_BRANCH` (Step 2c) after the last `/`. When no work branch exists (vcs disabled / worktree skipped on a non-repo), derive `<leaf>` as a ≤40-char kebab slug of the task description — the same slug logic used for branch derivation.
+2. **Check whether `PLAN_FILE` already exists.** Because the orchestrator only writes it *after* the challenger approves, its presence means a previously-approved plan for this exact use case / branch survived a prior, interrupted run.
+   - **If it exists**: read it, show the user its header (the use case / branch it covers and the date it was approved) plus a one-line summary, then ask via `AskUserQuestion`:
+     - Question: `An approved implementation plan already exists for this work at <PLAN_FILE>. Resume from it, or regenerate it from scratch?`
+     - Options:
+       - **Resume from the saved plan** (Recommended) — skip the analyst/challenger phase entirely and implement the persisted plan. Recovers partial work after an interrupted run.
+       - **Regenerate from scratch** — re-run the analyst/challenger loop; the freshly approved plan overwrites the file.
+     - On **Resume**: set `RESUME_FROM_PLAN = true`. On **Regenerate**: set `RESUME_FROM_PLAN = false`.
+   - **If it does not exist**: set `RESUME_FROM_PLAN = false`. The orchestrator creates `PLAN_FILE` after Phase 1.
+
+The plan file lives inside `WORKDIR`, so it is staged, committed, and pushed with the rest of the work (it travels with the PR) — see `orchestrator.md` § "Implementation plan artifact".
+
 ## Step 3 — Describe and confirm
 
-Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Also note that the run is isolated in a fresh git worktree by default (Step 2c) — `TARGET_DIR` is left untouched — and that they can ask to work in place instead. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
+Briefly describe the phases (Analysis → Challenge → Plan preview → Implementation → Testing), the 6-round cap on every feedback loop, and that you will show the approved plan to the user before implementation. Mention that the approved plan is persisted to `PLAN_FILE` (Step 2e) as a recoverable source of truth committed with the work, and — when resuming from an existing plan — that the analyst/challenger phase is skipped. Also note that the run is isolated in a fresh git worktree by default (Step 2c) — `TARGET_DIR` is left untouched — and that they can ask to work in place instead. Ask whether to proceed. If the user prefers direct solo implementation, skip this skill and proceed normally.
 
 ## Step 3a — Grant TARGET_DIR-scoped permissions (recommended)
 
@@ -199,7 +217,7 @@ When the profile IS active, run the following before Step 4. **All paths, builds
 
 Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. The path stays `dev-team/` because that is the **template folder** containing role definitions — the runtime team name is `<TEAM_NAME>`, not `dev-team`. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
 
-Pass `TEAM_NAME`, `USE_CASE_FILE` (the absolute path, or `null`), and `WORKDIR` into the orchestration. **The orchestrator uses `WORKDIR` as its `TARGET_DIR`** — every read, write, build, test, ledger update, agent spawn path, and git operation happens in `WORKDIR`. If Step 2c created a worktree, also tell the orchestrator the work branch `<WORK_BRANCH>` is **already created and checked out** in `WORKDIR`, so it MUST skip the in-place branch-cut in its *Pre-implementation — Branching* section. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
+Pass `TEAM_NAME`, `USE_CASE_FILE` (the absolute path, or `null`), `WORKDIR`, `PLAN_FILE` (the implementation-plan path from Step 2e), and `RESUME_FROM_PLAN` (boolean) into the orchestration. **The orchestrator uses `WORKDIR` as its `TARGET_DIR`** — every read, write, build, test, ledger update, agent spawn path, and git operation happens in `WORKDIR`. When `RESUME_FROM_PLAN` is true, the orchestrator skips the analyst/challenger phase and implements the plan already saved at `PLAN_FILE`. If Step 2c created a worktree, also tell the orchestrator the work branch `<WORK_BRANCH>` is **already created and checked out** in `WORKDIR`, so it MUST skip the in-place branch-cut in its *Pre-implementation — Branching* section. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
 
 ## Step 6 — Tear down
 
