@@ -4,6 +4,18 @@
 
 This workspace hosts four Claude Code entry points that operate on a **target project folder the user chooses**: the `project-builder` subagent (scaffolds a new project), the `develop` skill (builds features via a small agent team), the `revise-brief` skill (updates an existing brief), and the `define-use-case` skill (captures a single use case as a formalized Markdown file under `<TARGET_DIR>/use-cases/`). Nothing in this workspace is the project itself — it is the tooling that creates and evolves projects.
 
+## Permissions prompt behaviour
+
+Before showing the Step 3a permissions grant prompt (in `develop`, `revise-brief`, or any entry point), check whether the session is running with `--dangerously-skip-permissions`. Drive the assessment off the command's **exit (return) code**, not its stdout — shell output filters/proxies (e.g. RTK token compression) can rewrite or strip stdout and corrupt an output-based check, whereas the exit code is unaffected:
+
+```
+! ps aux | grep -q "[c]laude.*dangerously-skip-permissions"
+```
+
+This produces no output by design. **Exit code `0` → bypass is OFF**; **exit code `1` → bypass is ON**. (`grep -q` keeps stdout empty, the leading `!` inverts grep's natural match result into the `0`=OFF / `1`=ON convention, and the `[c]laude` bracket pattern stops grep from matching its own process.)
+
+If the exit code is `1` (bypass ON), **skip Step 3a entirely** — bypass permissions mode already auto-approves every tool call, so prompting the user to update `.claude/settings.local.json` is redundant. Proceed directly to the next step.
+
 ## Hard rules (all entry points)
 
 - Neither entry point may write anywhere inside the folder the current Claude session was launched from (its session working directory). That folder hosts the agent, skills, and team definitions, and is edited by the user directly — never by the spawned agents.
@@ -11,18 +23,51 @@ This workspace hosts four Claude Code entry points that operate on a **target pr
 - `PROJECT_BRIEF.md` is the single source of truth for the target project. Both entry points read it (or produce it), and `develop` refuses to run without one.
 - Always resolve the session directory dynamically (e.g., via `pwd`); never hardcode paths, since this workspace may live at different paths on different machines.
 
+## Acquiring a target project's skills
+
+A target project can ship its own skills under `<TARGET_DIR>/.claude/skills/`. Because the Claude session is launched from this workspace (not the target), those project-local skills are not loaded automatically. The **`acquire-project-skills` skill** bridges this: it symlinks each target skill into the user's personal skills folder (`~/.claude/skills/`), which Claude Code watches and hot-reloads, so the project's skills become callable in the current session.
+
+**When it runs.** All four entry points invoke `acquire-project-skills` once `TARGET_DIR` is resolved, before doing their real work (`develop` Step 2d, `define-use-case` Step 2b, `revise-brief` Step 1b; for `project-builder`, the root session runs it when continuing an existing repo that ships skills). It is also user-invocable standalone ("load the skills from project X"). Re-running is idempotent.
+
+**Mechanics.**
+- Implementation lives in `.claude/scripts/acquire-project-skills.sh` (link + ledger upsert) and `.claude/scripts/release-project-skills.sh` (unlink + ledger prune + dangling-symlink safety sweep). The skill is a thin wrapper around the acquire script.
+- The **ledger** `acquired-project-skills.json` (workspace root, **gitignored**, per-machine) records what was linked, keyed by `(project, session_id)`:
+  ```json
+  { "acquired-project-skills": [
+    { "project": "/abs/path/to/target", "session_id": "<uuid>", "skills": ["/home/<user>/.claude/skills/<name>", ...] }
+  ] }
+  ```
+  Paths are stored absolute (not `~`-prefixed) so the cleanup hook can `rm` them unambiguously. The script tags each entry with `$CLAUDE_CODE_SESSION_ID`, so cleanup is scoped per session even if two sessions run at once.
+- **Hooks** (registered in `.claude/settings.json`):
+  - `SessionStart` (`hooks/session-start.sh`) ensures `~/.claude/skills/` exists — required, because Claude Code only hot-reloads a personal-skills folder that already existed at session start — and runs `release-project-skills.sh --prune-dangling` to clear orphans left by a previously crashed session.
+  - `SessionEnd` (`hooks/session-end.sh`) reads `session_id` from stdin and runs `release-project-skills.sh <session_id>`, removing exactly this session's symlinks and dropping its ledger entries.
+
+**Safety guarantees (enforced by the scripts — do not work around them).**
+- Never clobbers an existing entry in `~/.claude/skills/`: a name collision is skipped with a warning, not overwritten.
+- Never shadows one of this workspace's own skills: a target skill whose name matches a workspace skill is skipped.
+- The release path only ever `rm`s **symlinks** (guarded by a `-L` test); a real file/dir at the same path is left untouched.
+
+**Hot-reload caveat.** Linked skills become callable on the *next turn*, but only if `~/.claude/skills/` existed when the session started. The `SessionStart` hook guarantees this for every session after the tooling is installed; on the first-ever run on a fresh machine the folder may not have existed at start, so a session restart is needed once.
+
 ## Entry point 1 — `project-builder` (scaffold)
 
-When the user asks to define, start, plan, or scaffold a new project:
+When the user asks to define, start, plan, or scaffold a new project, **or** when the user asks to clone an existing repo or continue working on an existing project folder:
 
-1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`.
+1. **Ask for and confirm `TARGET_DIR` with the user** (absolute path). Refuse anything inside `SESSION_DIR`. As a default suggestion, offer a sibling of `SESSION_DIR` — i.e., `<parent-of-SESSION_DIR>/<project-name>` (e.g., if `SESSION_DIR` is `/workspace/project-builder`, suggest `/workspace/<project-name>`).
 2. **Ensure `TARGET_DIR` exists before spawning the subagent.** If it does not, `mkdir -p <TARGET_DIR>` from the root session (with user approval if prompted). The subagent does NOT hold Bash permissions for paths outside `SESSION_DIR` and will stop and escalate if the folder is missing — that's expected and by design. Creating the folder is the root session's job.
-3. **Grant TARGET_DIR-scoped permissions (recommended).** Before spawning, prompt the user via `AskUserQuestion` to add blanket Edit/Write/Read/Bash/git permissions scoped to `<TARGET_DIR>` to `<SESSION_DIR>/.claude/settings.local.json`. Without this, scaffolding accumulates per-bash-command prompts. The exact rule set, the idempotency check, and the JSON-edit procedure are documented in `.claude/skills/develop/SKILL.md` § "Step 3a — Grant TARGET_DIR-scoped permissions"; both entry points use the same routine. Permissions are scoped to the target folder only.
-4. **Spawn the `project-builder` subagent via the Agent tool** with:
+3. **Check for an existing `PROJECT_BRIEF.md` in `TARGET_DIR`.** Before spawning any subagent, check whether `<TARGET_DIR>/PROJECT_BRIEF.md` already exists:
+   - **If it exists and is compatible** (has valid YAML frontmatter with `schema_version: 1`): inform the user, show the project name and maturity target from the frontmatter, and ask via `AskUserQuestion` whether to (a) use it as-is and proceed to `develop`, (b) revise one or more sections via `revise-brief`, or (c) re-scaffold from scratch. Do **not** spawn `project-builder` unless the user chooses (c).
+   - **If it exists but is missing required fields** (e.g. no frontmatter, missing or unsupported `schema_version`): surface the specific mismatch and ask the user how to proceed (revise or re-scaffold). Do not silently overwrite.
+   - **If it does not exist but `TARGET_DIR` already contains files** (e.g., a cloned repo): offer to create one. Before spawning `project-builder`, read the project to extract context — check for `package.json`, `Cargo.toml`, `build.gradle`, `pom.xml`, `pyproject.toml`, `go.mod`, `Makefile`, `Dockerfile`, `docker-compose.*`, `README.md`, `.github/workflows/`, and any other top-level config files. Pass a structured summary of what was found (detected languages, frameworks, build tool, scripts, description from README, CI setup, etc.) to the `project-builder` subagent as pre-populated context, so the define-* skills can skip or pre-fill questions that are already answered by the existing code. Inform the user what was detected before spawning.
+   - **If it does not exist and `TARGET_DIR` is empty**: continue to step 4 (normal scaffolding flow with no pre-populated context).
+4. **Grant TARGET_DIR-scoped permissions (recommended).** Before spawning, prompt the user via `AskUserQuestion` to add blanket Edit/Write/Read/Bash/git permissions scoped to `<TARGET_DIR>` to `<SESSION_DIR>/.claude/settings.local.json`. Without this, scaffolding accumulates per-bash-command prompts. The exact rule set, the idempotency check, and the JSON-edit procedure are documented in `.claude/skills/develop/SKILL.md` § "Step 3a — Grant TARGET_DIR-scoped permissions"; both entry points use the same routine. Permissions are scoped to the target folder only.
+5. **Spawn the `project-builder` subagent via the Agent tool** with:
    - `subagent_type: "project-builder"`
    - `mode: "acceptEdits"` — the agent auto-accepts its own file writes; Bash still prompts for commands not pre-approved in `.claude/settings.local.json`.
 
 The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before** acting, so its plan is persisted and verifiable.
+
+**Acquire shipped skills.** If `TARGET_DIR` already contains `.claude/skills/` (e.g. an existing repo being continued), the root session invokes `acquire-project-skills` so those skills are usable this session — see § "Acquiring a target project's skills". A brand-new scaffold has none, so this is usually a no-op.
 
 **Bash conventions the subagent follows (documented in `.claude/agents/project-builder.md`):** one `mkdir -p` call per tree, `git -C <TARGET_DIR>` form instead of `cd <TARGET_DIR> && git …`, absolute paths throughout, and no compound `&&`/`;` commands. Low-risk scaffolding Bash verbs (`mkdir`, `git init`, `git branch`, `git remote add`, `git rev-parse`, `git -C …`) are pre-approved in `.claude/settings.local.json` so they do not prompt during a normal scaffold.
 
@@ -41,9 +86,19 @@ The agent always writes/updates `PROJECT_BRIEF.md` in the target folder **before
 
 When the user asks to implement a feature, fix a bug, refactor, or make any code change in an existing target project, invoke the `develop` skill **from the root session**. Do not enter plan mode and do not start exploring manually — the skill replaces that.
 
+This applies to **generic or loosely-phrased requests too** — any ask to implement, build, add, write, fix, debug, refactor, or change a target project's code routes here, not only fully-specified feature requests. Explicit phrasings like "use the agents", "use the team", or "run the dev team" always route here. **If in doubt whether a request warrants the skill, prompt the user** (e.g. "Run the dev-team for this, or handle it directly?") rather than silently proceeding solo.
+
 The skill orchestrates a four-agent team (`analyst`, `challenger`, `developer`, `qa`) with peer review, capped feedback loops, and role-scoped write permissions. Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not hardcoded.
 
+When `develop` is triggered **directly** (not chained from a `define-use-case` call), it first offers to formalize a use case before building (`develop` Step 2b): the user can **define a use case first** — which hands off to `define-use-case`, which chains back into `develop` with the saved file — or **go ahead without one** (free-form task, or pick an existing pending/blocked use case). Runs that arrive *from* `define-use-case` (a use-case file is passed in) skip this offer, as do runs invoked with an explicit use-case path.
+
+By default the skill **isolates the run in a fresh git worktree** cut from `TARGET_DIR` on the work branch (`develop` Step 2c), so a concurrent session working in `TARGET_DIR` can't collide on files, index, or branch; the whole team then operates in that worktree (`WORKDIR`). The user can opt out per run ("no worktree" / "work in place"), and it is auto-skipped when the project isn't a git repo. The worktree is left in place until its PR merges (Step 6 offers cleanup).
+
+Once the analyst and challenger reach agreement, the orchestrator persists the approved proposal to an **implementation-plan file** (`PLAN_FILE`) inside `WORKDIR` and forwards *its path* — alongside the use-case file path — to the developer and QA, who implement and verify against that fixed artifact rather than an in-memory message. See § "Implementation plan artifact (`PLAN_FILE`)" for location, ownership, and the recovery flow.
+
 Must be invoked from the root session: spawned subagents cannot spawn further agents, so nested invocation will fail. If `PROJECT_BRIEF.md` is missing from the target folder, the skill first spawns `project-builder` to generate one, then proceeds.
+
+The runtime team name is `project.name` from the brief; when the run is anchored to a use case it is suffixed with the use case's **unpadded** number — `<project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `…-uc-24`) — so concurrent use-case runs never share a team. **Team regeneration is always a complete teardown first:** any time an issue forces regenerating the team (a dead agent, a stale/desynced team), the orchestrator sends `shutdown_request` to every teammate and calls `TeamDelete` before re-creating — it never re-spawns one role into a half-broken team. See `.claude/teams/dev-team/orchestrator.md` § "Team regeneration — always tear down completely first".
 
 ### Team definitions (read by the orchestrator, not invoked directly)
 
@@ -69,7 +124,6 @@ Every `PROJECT_BRIEF.md` starts with a YAML frontmatter block that agents read f
 schema_version: 1
 project:
   name: <string>
-  target_dir: <absolute path>
   maturity_target: prototype | mvp | production
 stack:
   languages: [<string>, ...]
@@ -150,6 +204,24 @@ Role agents (analyst, challenger, developer, qa) MUST NOT write to the ledger. T
 
 If the ledger is missing when the orchestrator needs to update it (e.g., the use-case file was moved in by hand), the orchestrator stops and escalates — it does not silently create or repair the ledger. Ledger creation belongs to `define-use-case`.
 
+## Implementation plan artifact (`PLAN_FILE`)
+
+Every `develop` run persists the analyst↔challenger **approved proposal** to a single Markdown file — the *implementation plan* — which is the fixed source of truth the developer and QA build and verify against, and the anchor for recovering an interrupted run (Claude quota exhausted, session terminated mid-flight). It complements the use-case file: the use case says *what* the project should do; the plan says *how* this run will do it.
+
+**Path (`PLAN_FILE`, resolved deterministically by `develop` Step 2e, inside `WORKDIR`):**
+- Use-case run → `<use_cases.folder>/plans/<use-case-stem>.md` (default e.g. `use-cases/plans/01-foo.md`) — beside the use case it implements.
+- Free-form run → `.dev-team/plans/<branch-leaf>.md`, keyed on the work-branch leaf (or a kebab slug of the task when there is no branch).
+
+**Write ownership.** The **dev-team orchestrator (root session)** is the sole writer, exactly as for the ledger. It writes the file once, right after the challenger approves (Phase 1 §4a), transcribing the approved proposal verbatim under a small YAML header (`plan_for`, `work_branch`, `team`, `approved`). The analyst and challenger remain read-only — they *produce* the proposal but never write it to disk; the developer and QA *consume* `PLAN_FILE` (read-only) and MUST NOT edit it. Persisting received content is a coordination-artifact write, not authoring, so it does not breach the orchestrator-only rule.
+
+**Committed with the work.** `PLAN_FILE` lives in the worktree, so it is staged by the normal `git add -A` at the next checkpoint and at Completion — it travels with the PR as a durable record. It is exempt from the developer's/QA's `paths.production` / `paths.test` scopes because the orchestrator writes it, not them.
+
+**Recovery.** On a re-run, `develop` Step 2e checks the deterministic path. If an approved plan is already there (a prior run was interrupted), it offers via `AskUserQuestion` to **resume** (skip the analyst/challenger phase entirely and implement the saved plan) or **regenerate** (re-run Phase 1, overwriting the file). The orchestrator honors the choice via the `RESUME_FROM_PLAN` flag — see `.claude/teams/dev-team/orchestrator.md` § "Implementation plan artifact".
+
+## Release notes (`generate-release`)
+
+Whenever a release is cut for a target project (any release tag and its release workflow — a single-track `v*`, or per-component tracks each with their own tag prefix), the release description MUST be produced by the **`generate-release` skill** — never by reusing the previous release's body (that is how stale notes accumulate, e.g. a release repeating the same change for many versions). The skill derives notes solely from the commit / PR / use-case diff since the previous tag of that track, and writes two bullet sections to the GitHub release: **New features** (each bullet ≤ 200 words) and **Bugfixes** (each bullet ≤ 50 words), with every bullet linking to the use case(s) it came from (or its PR/commit when no use case applies). Release tracks and their path scoping are read from the target's `PROJECT_BRIEF.md` (or inferred), never hardcoded in this workspace. It writes only the release *description* — tag creation and the release build stay with the release command / orchestrator. It is also user-invocable standalone to (re)write the notes of an existing release. For multi-track repos, run it once per track being released, each scoped to its own paths.
+
 ## Profile skills (opt-in conventions)
 
 Profiles are opinionated skills under `.claude/skills/profile-*/SKILL.md` that encode conventions for a specific stack, tool, or problem area. They are **opt-in per project**: a profile applies only when `PROJECT_BRIEF.md` → `## Profiles` lists its skill name. Profile descriptions explicitly instruct agents not to auto-invoke outside this mechanism.
@@ -166,6 +238,7 @@ If an active profile conflicts with the brief, the brief wins and the agent surf
 
 - `profile-java-database-access` — DTO projections over entity queries; bulk over iterative; parameterized queries only; Hibernate as JPA implementation.
 - `profile-java-server-architecture` — Gradle (latest stable), Spring Boot (latest stable), Java (latest LTS); repositories return DTOs only; internal DTOs never cross the API boundary; strict Controller/Job → Facade → Service → Repository call chain with transactions owned by the facade.
+- `profile-java-call-graph-tool` — Provisions the `java-class-call-scanning` bytecode call-graph analyzer for the dev-team. `develop` Step 3b downloads the latest release jar to a per-user cache and writes an MCP server entry to `<TARGET_DIR>/.mcp.json`; agents use the nine query operations (find-callers, find-callees, methods-in-class, methods-at-line, find-field-readers, find-field-writers, impact-of-diff, tests-for-diff, refresh-index) either through MCP tools (when the session loaded the `.mcp.json`) or through the CLI surface against the cached jar.
 - `profile-aws-deployment` — AWS as the preferred cloud provider; every AWS-based suggestion must include a cost estimation table (per-service daily / monthly / yearly, with cumulative totals across new and pre-existing services).
 
 ## Permissions model

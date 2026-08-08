@@ -48,5 +48,4 @@ Write to `PROJECT_BRIEF.md` in the target folder under a `## Overview` heading w
 Update these YAML frontmatter fields (see `CLAUDE.md` for the full schema). Leave every other field untouched:
 
 - `project.name` — the working name
-- `project.target_dir` — the absolute path `TARGET_DIR`
 - `project.maturity_target` — `prototype`, `mvp`, or `production`
