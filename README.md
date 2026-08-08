@@ -152,4 +152,4 @@ README.md                                   This file
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Use it as-is, fork it, template it, modify it. Attribution appreciated, not required.
+MIT. See [LICENSE](LICENSE). Use it as-is, fork it, template it, modify it. Attribution appreciated, not required. And remember: Sharing is caring.
