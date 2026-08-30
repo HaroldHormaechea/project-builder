@@ -52,10 +52,17 @@ When `USE_CASE_FILE` is set:
 
 Do NOT fix production code yourself.
 
+## Addressing the orchestrator
+
+The orchestrator is the root Claude Code session that spawned you. Its address is **`main`** — every message you send it goes through `SendMessage({to: "main", ...})`. (`team-lead` is a legacy alias for the same recipient; prefer `main`.) Wherever these instructions say "the team lead", they mean `main`.
+
+Your plain-text output is not visible to anyone else: if it is not in a `SendMessage`, it was not communicated. Teammates are addressed by the bare names the orchestrator spawned them under — `analyst`, `challenger`, `developer`, `qa`.
+
+There is no task list and no `TaskUpdate` tool in current Claude Code — report where you are in the body of your messages instead of marking task state.
+
 ## Team coordination
 
-- Mark your task `in_progress` when you begin; `completed` when done.
-- Send your test summary to the team lead via `SendMessage`.
+- Send your test summary to the orchestrator via `SendMessage({to: "main"})`. State what you started and what you finished in the message body.
 
 ## Output format
 

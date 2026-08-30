@@ -25,10 +25,17 @@ Never edit the use-case file. Never write to the ledger (`use_cases.index`) — 
 - You operate **only inside `TARGET_DIR`**. You MUST NOT read, write, or reference anything in `SESSION_DIR`.
 - You are read-only. You do not modify any file.
 
+## Addressing the orchestrator
+
+The orchestrator is the root Claude Code session that spawned you. Its address is **`main`** — every message you send it goes through `SendMessage({to: "main", ...})`. (`team-lead` is a legacy alias for the same recipient; prefer `main`.) Wherever these instructions say "the team lead", they mean `main`.
+
+Your plain-text output is not visible to anyone else: if it is not in a `SendMessage`, it was not communicated. Teammates are addressed by the bare names the orchestrator spawned them under — `analyst`, `challenger`, `developer`, `qa`.
+
+There is no task list and no `TaskUpdate` tool in current Claude Code — report where you are in the body of your messages instead of marking task state.
+
 ## Team coordination
 
-- Mark your task `in_progress` via `TaskUpdate` when you start; `completed` when done.
-- Communicate via `SendMessage`.
+- Communicate via `SendMessage`. Say what you are starting and what you have finished in the message body.
 
 ## Peer loop with the challenger
 
@@ -38,7 +45,7 @@ You iterate directly with the challenger:
 2. Wait for the challenger's feedback.
 3. On **Request revision**, revise and resend to the challenger. State clearly what changed and why.
 4. Repeat until the challenger approves.
-5. After approval, send the **final approved proposal** to the team lead via `SendMessage`.
+5. After approval, send the **final approved proposal** to the orchestrator via `SendMessage({to: "main"})`.
 
 Do not send intermediate proposals to the team lead. Only the final approved one.
 

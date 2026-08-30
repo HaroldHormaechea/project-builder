@@ -43,7 +43,7 @@ Role boundaries are derived from `PROJECT_BRIEF.md` in the target folder — not
 1. Check for `<TARGET_DIR>/PROJECT_BRIEF.md`.
 2. **If present**: read it and confirm with the user that it still reflects the current state of the project. Proceed.
 3. **If missing**: tell the user the team needs a brief to derive architecture, tech stack, and conventions. Offer to spawn the `project-builder` subagent to generate one. On agreement:
-   - Spawn via the Agent tool with `subagent_type: "project-builder"`, `mode: "acceptEdits"`, and a prompt directing it at `TARGET_DIR`.
+   - Spawn via the Agent tool with `subagent_type: "project-builder"` and a prompt directing it at `TARGET_DIR`. (Do not pass `mode` — it is deprecated and ignored; subagents inherit this session's permission mode, which is why the Step 3a grant matters.)
    - Wait for completion. Confirm `PROJECT_BRIEF.md` now exists in `TARGET_DIR`.
 4. If the user declines to produce a brief, stop — `develop` cannot run without one.
 
@@ -93,7 +93,7 @@ If `<WORKDIR>/.claude/skills/` exists, invoke the `acquire-project-skills` skill
 
 ## Step 2e — Resolve the implementation-plan artifact and offer recovery
 
-Every run persists the analyst↔challenger **approved proposal** to a single Markdown file — the **implementation plan** — which becomes the fixed source of truth for what the developer and QA build, and the recovery anchor if the run is interrupted (Claude quota exhausted, session terminated mid-flight). Resolve its deterministic path `PLAN_FILE` now, before creating the team. The orchestrator writes it (Step 5 / `orchestrator.md` § "Implementation plan artifact"); `develop` only resolves the path and decides whether to resume.
+Every run persists the analyst↔challenger **approved proposal** to a single Markdown file — the **implementation plan** — which becomes the fixed source of truth for what the developer and QA build, and the recovery anchor if the run is interrupted (Claude quota exhausted, session terminated mid-flight). Resolve its deterministic path `PLAN_FILE` now, before Step 4. The orchestrator writes it (Step 5 / `orchestrator.md` § "Implementation plan artifact"); `develop` only resolves the path and decides whether to resume.
 
 1. **Derive `PLAN_FILE`** (an absolute path inside `WORKDIR`):
    - **When `USE_CASE_FILE` is set**: under a `plans/` subfolder of the brief's `use_cases.folder` (frontmatter, default `use-cases/`), named after the use-case filename stem → `<WORKDIR>/<use_cases.folder>/plans/<stem>.md` (e.g. `…/use-cases/plans/01-foo.md`). The plan sits beside the use case it implements.
@@ -198,30 +198,31 @@ When the profile IS active, run the following before Step 4. **All paths, builds
 
 9. **Forward the cached jar path to the orchestrator.** Hold the absolute path of the cached jar as `JAVA_CALL_GRAPH_JAR`. The orchestrator (Step 5) will include it in each agent's spawn prompt so the agents know where to find the binary when falling back to CLI mode.
 
-## Step 4 — Derive the team name and create the team + task list
+## Step 4 — Derive the run label and clear any stale role agents
 
-1. Read the YAML frontmatter of `<WORKDIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it as the team-name base (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Do NOT fall back to a hardcoded default like `dev-team` — that historically caused stale-config collisions across projects. Then derive `TEAM_NAME`:
-   - **If `USE_CASE_FILE` is set**, suffix the base with the use case's number, **unpadded**: take the numeric prefix of the use-case filename stem (e.g. `01` from `01-foo.md`, `24` from `24-bar.md`), strip leading zeros, and append `-uc-<N>` → `TEAM_NAME = <project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `iriusrisk-core-uc-24`). This keeps concurrent use-case runs on the same project from sharing — and colliding on — one team.
-   - **If `USE_CASE_FILE` is `null`** (free-form task), `TEAM_NAME = <project.name>` with no suffix.
-2. Check whether `~/.claude/teams/<TEAM_NAME>/config.json` already exists. If it does, it is either an active team from a sibling Claude Code session or a stale leftover from a previous unclean run on this project. Read the `description` and `leadSessionId` fields from the config and surface them to the user via `AskUserQuestion`, with options:
-   - **Tear down and re-create** — only choose if the user confirms the existing team is theirs to discard. Tear it down **completely** first: send `shutdown_request` to any teammate still registered under it, then use `Bash` to `rm -rf ~/.claude/teams/<TEAM_NAME> ~/.claude/tasks/<TEAM_NAME>` after explicit user approval. Only then proceed to `TeamCreate`. Never re-create on top of a partially-present team — a clean slate is mandatory (see `.claude/teams/dev-team/orchestrator.md` § "Team regeneration — always tear down completely first").
-   - **Abort `develop` run** — bail out cleanly; do not call `TeamCreate`.
-   Never silently delete an existing team.
-3. Call `TeamCreate` with `team_name: <TEAM_NAME>`. Never skip this.
-4. Create three tasks via `TaskCreate` with dependencies:
-   - Task 1: *Analysis & Challenge* — unblocked
-   - Task 2: *Implementation* — blocked by Task 1
-   - Task 3: *Testing* — blocked by Task 2
+> **Teams are implicit — there is nothing to create here.** Current Claude Code removed `TeamCreate`, `TeamDelete`, `TaskCreate`, and `TaskUpdate`. Every session owns exactly one implicit team (`session-<id>`), created at session start with this session as its `team-lead`; a teammate exists because you spawned it with the `Agent` tool under a `name`, and that name is its `SendMessage` address. There is no task list to seed either — the orchestrator sequences the three phases itself. If you find yourself reaching for `TeamCreate` or `TaskCreate`, the instruction you are following is out of date: skip it.
+
+1. Read the YAML frontmatter of `<WORKDIR>/PROJECT_BRIEF.md`. The `project.name` field is authoritative — use it as the run-label base (e.g. `yt-dlp-ui`, `iriusrisk-core`). If `project.name` is missing or empty, stop and escalate to the user. Then derive `RUN_LABEL`:
+   - **If `USE_CASE_FILE` is set**, suffix the base with the use case's number, **unpadded**: take the numeric prefix of the use-case filename stem (e.g. `01` from `01-foo.md`, `24` from `24-bar.md`), strip leading zeros, and append `-uc-<N>` → `RUN_LABEL = <project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `iriusrisk-core-uc-24`).
+   - **If `USE_CASE_FILE` is `null`** (free-form task), `RUN_LABEL = <project.name>` with no suffix.
+
+   `RUN_LABEL` is a **human-readable label only**. It names no runtime object: it goes into the `PLAN_FILE` header and into what you tell the user, and nowhere else. Concurrent runs can no longer collide over it, because agent names are scoped to their own session.
+2. Call `ListAgents` and check whether `analyst`, `challenger`, `developer`, or `qa` is already live **in this session** — e.g. an earlier `develop` run in the same session that ended without teardown. Spawning over a live name silently supersedes it, so if any appear, surface them to the user via `AskUserQuestion`:
+   - **Stop them and start clean** (recommended) — `TaskStop` each name that `ListAgents` shows as still running, then proceed. A name that has finished its turn needs no `TaskStop`; spawning over it in Step 5 retires it (latest wins). `Task <name> is not running` and `No task found with ID` both mean "already stopped" — expected, not failures.
+   - **Abort `develop` run** — bail out cleanly; spawn nothing.
+
+   Never silently stop an agent that may belong to work in flight. Agents in *other* sessions are irrelevant here — names are session-scoped and cannot collide across sessions.
+3. Ignore `~/.claude/teams/<name>/` directories other than this session's own `session-<id>`. They are inert leftovers from the removed named-team feature: do not read them, do not gate the run on them, and do not delete them unless the user asks.
 
 ## Step 5 — Hand off to the orchestrator doc
 
-Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. The path stays `dev-team/` because that is the **template folder** containing role definitions — the runtime team name is `<TEAM_NAME>`, not `dev-team`. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
+Use `Read` to load `<SESSION_DIR>/.claude/teams/dev-team/orchestrator.md` and follow it directly. The path stays `dev-team/` because that is the **template folder** containing role definitions on disk — it is not a runtime object. You (the root session) are the orchestrator. Do not spawn a separate orchestrator agent — spawned agents cannot spawn further agents.
 
-Pass `TEAM_NAME`, `USE_CASE_FILE` (the absolute path, or `null`), `WORKDIR`, `PLAN_FILE` (the implementation-plan path from Step 2e), and `RESUME_FROM_PLAN` (boolean) into the orchestration. **The orchestrator uses `WORKDIR` as its `TARGET_DIR`** — every read, write, build, test, ledger update, agent spawn path, and git operation happens in `WORKDIR`. When `RESUME_FROM_PLAN` is true, the orchestrator skips the analyst/challenger phase and implements the plan already saved at `PLAN_FILE`. If Step 2c created a worktree, also tell the orchestrator the work branch `<WORK_BRANCH>` is **already created and checked out** in `WORKDIR`, so it MUST skip the in-place branch-cut in its *Pre-implementation — Branching* section. The orchestrator spec explains how to forward `team_name` to each `Agent` spawn and how to update the ledger.
+Pass `RUN_LABEL`, `USE_CASE_FILE` (the absolute path, or `null`), `WORKDIR`, `PLAN_FILE` (the implementation-plan path from Step 2e), and `RESUME_FROM_PLAN` (boolean) into the orchestration. **The orchestrator uses `WORKDIR` as its `TARGET_DIR`** — every read, write, build, test, ledger update, agent spawn path, and git operation happens in `WORKDIR`. When `RESUME_FROM_PLAN` is true, the orchestrator skips the analyst/challenger phase and implements the plan already saved at `PLAN_FILE`. If Step 2c created a worktree, also tell the orchestrator the work branch `<WORK_BRANCH>` is **already created and checked out** in `WORKDIR`, so it MUST skip the in-place branch-cut in its *Pre-implementation — Branching* section. The orchestrator spec explains how to spawn each named agent, how the team addresses it back (`main`), and how to update the ledger.
 
 ## Step 6 — Tear down
 
-When all phases complete (or on user-requested abort), send `shutdown_request` to every active teammate, then call `TeamDelete` to remove the runtime team (`<TEAM_NAME>`). `TeamDelete` uses the current session's team context — no name argument needed. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected; it is the workspace's role-definition library and is shared across all projects.
+When all phases complete (or on user-requested abort), call `ListAgents` and `TaskStop` only the teammates it shows as **still running**. `TaskStop` acts on running agents alone: one that has finished its turn is already inert and returns `Task <name> is not running (status: completed)` or `No task found with ID: <name>`. Both mean "already stopped" — expected, not errors to retry or report. After a clean run every teammate has normally finished, so teardown is often a no-op. There is no team object to delete — the session's implicit team is torn down with the session itself. See `orchestrator.md` § "Stopping teammates" for the full rule. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected; it is the workspace's role-definition library and is shared across all projects.
 
 **Worktree cleanup (when Step 2c created one).** Leave the worktree in place until its branch is no longer needed — the open PR depends on the pushed branch, and the user may want to inspect or iterate locally before merge. Never remove it before Completion has pushed the branch. After the PR is open, tell the user the worktree exists at `<WORKDIR>` on `<WORK_BRANCH>` and offer to remove it (`git -C <TARGET_DIR> worktree remove <WORKDIR>` — add `--force` if it holds untracked build artifacts — then `git -C <TARGET_DIR> worktree prune`). Default to keeping it until the user confirms the PR is merged; never delete the branch itself (the PR needs it). On a blocked/aborted run, keep the worktree so the user can inspect the partial work.
 

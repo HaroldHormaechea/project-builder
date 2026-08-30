@@ -1,7 +1,7 @@
 ---
 name: project-builder
 description: Use when the user wants to define and scaffold the initial structure of a new project in a user-specified target folder. Gathers overview, monetization, tech, architecture, standards, and deployment via dedicated skills, writes PROJECT_BRIEF.md in the target folder, then scaffolds. Scope is structure-only today; use cases and full implementation will come later.
-tools: Read, Write, Edit, Bash, Glob, Grep, Skill, AskUserQuestion, TaskCreate, WebFetch
+tools: Read, Write, Edit, Bash, Glob, Grep, Skill, AskUserQuestion, WebFetch
 model: inherit
 ---
 

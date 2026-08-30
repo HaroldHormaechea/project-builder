@@ -54,7 +54,6 @@ If the user selects nothing, stop — there's nothing to do.
 Spawn the `project-builder` subagent via the Agent tool:
 
 - `subagent_type: "project-builder"`
-- `mode: "acceptEdits"`
 - `prompt`: an instruction block containing:
   - The absolute `TARGET_DIR`.
   - An explicit `REVISE_MODE` flag with the ordered list of skills to re-run (exactly what the user selected).

@@ -1,6 +1,10 @@
 # Dev Team Orchestration
 
-These instructions are for the **root Claude Code session** acting as the development-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, `PROJECT_BRIEF.md`, and the runtime team have all been established. The runtime team's name is `<TEAM_NAME>`, derived by the `develop` skill from `PROJECT_BRIEF.md` frontmatter `project.name` (e.g. `yt-dlp-ui`, `iriusrisk-core`). When the run is anchored to a use case, `develop` suffixes the name with the use case's unpadded number — `<project.name>-uc-<N>` (e.g. `yt-dlp-ui-uc-1`, `iriusrisk-core-uc-24`) — so concurrent use-case runs on one project never share a team. Use whatever `develop` passed you verbatim; do not re-derive it. The literal string `dev-team` referenced in path expressions below is the **template folder** containing role definitions; it is NOT the runtime team name.
+These instructions are for the **root Claude Code session** acting as the development-team orchestrator. They are invoked by the `develop` skill after `SESSION_DIR`, `TARGET_DIR`, and `PROJECT_BRIEF.md` have been established.
+
+> **Teams are implicit in current Claude Code — there is nothing to create.** The `TeamCreate`, `TeamDelete`, `TaskCreate`, and `TaskUpdate` tools were removed. Every session owns exactly one implicit team (`session-<id>`), created for you at session start; you are its `team-lead`. A teammate exists precisely because you spawned it with the `Agent` tool under a `name`, and that `name` is its address for `SendMessage`. `ListAgents` enumerates who is live; `TaskStop` on a name ends one. There is no shared task list, so **you** sequence the three phases yourself. Any instruction you may recall about creating, naming, or deleting a team is obsolete — never call those tools.
+
+`RUN_LABEL` is a human-readable label for this run, derived by the `develop` skill from `PROJECT_BRIEF.md` frontmatter `project.name` (e.g. `yt-dlp-ui`, `iriusrisk-core`) and suffixed with the use case's unpadded number when the run is anchored to one (`<project.name>-uc-<N>`, e.g. `yt-dlp-ui-uc-1`). Use whatever `develop` passed you verbatim; do not re-derive it. It is a **label only** — it names no runtime object, and appears in the `PLAN_FILE` header and in what you tell the user. The literal string `dev-team` in path expressions below is the **template folder** holding role definitions on disk; it is not a runtime object either.
 
 **CRITICAL: You are an orchestrator ONLY.** You MUST NOT read source code, explore the target folder, propose solutions, review proposals, write code, or write tests yourself. If you catch yourself doing any of that, stop and delegate to a spawned agent.
 
@@ -19,9 +23,7 @@ These instructions are for the **root Claude Code session** acting as the develo
 Use the `Agent` tool to create each teammate. Every call MUST include:
 
 - `subagent_type: "general-purpose"`
-- `name`: one of `analyst`, `challenger`, `developer`, `qa`
-- `team_name: "<TEAM_NAME>"` — the runtime team name passed in by `develop` (e.g. `yt-dlp-ui`), NOT the literal `dev-team`
-- `mode: "acceptEdits"` — auto-accepts the agent's file writes; Bash still prompts
+- `name`: exactly one of `analyst`, `challenger`, `developer`, `qa`. This is the agent's **address** — you and its peers reach it with `SendMessage({to: "<name>"})`. Never omit it: an unnamed agent is addressable only by raw `agentId`, which breaks the peer loop and the liveness protocol.
 - `prompt`: the contents of the role file (read with the `Read` tool) concatenated with:
   - The task anchor: either the `USE_CASE_FILE` absolute path (when set) or the user's task description (when `USE_CASE_FILE` is `null`). If a use case is in play, pass the path — not the file content — and instruct the agent to read it themselves.
   - The absolute path of `TARGET_DIR`
@@ -29,40 +31,63 @@ Use the `Agent` tool to create each teammate. Every call MUST include:
   - If `USE_CASE_FILE` is set: a directive to read it immediately after the brief and treat its `## Summary` as the task, its `## Acceptance Criteria` as the verifiable contract, and its `## Potential Pitfalls & Open Questions` as items to address explicitly in their output
   - **For the developer and QA only**: the absolute path `PLAN_FILE`, with a directive to read it (the persisted, approved implementation plan) as the authoritative description of what to build. The plan path is forwarded alongside the use-case path — both are inputs the agent reads itself; do not paste the plan's contents into the spawn prompt. (The analyst and challenger never receive `PLAN_FILE` — they produce the plan, they do not consume it.)
   - A hard prohibition on writing anywhere outside `TARGET_DIR` (and specifically nothing inside `SESSION_DIR`)
+  - A directive that **you are addressed as `main`**: everything the agent sends back to you goes through `SendMessage({to: "main", ...})`, and peers are addressed by their bare role names (`analyst`, `challenger`, `developer`, `qa`). Plain-text output is invisible to everyone else — only `SendMessage` communicates.
   - A hard prohibition on writing to the use-case ledger (`<TARGET_DIR>/<use_cases.index>`): ledger writes are the orchestrator's sole responsibility
   - If `profile-java-call-graph-tool` is active and `develop` Step 3b ran: the absolute path of the cached jar as `JAVA_CALL_GRAPH_JAR`, with a note that the agent should use the MCP tools prefixed `mcp__java-class-call-scanning__` when present and fall back to the CLI surface against `JAVA_CALL_GRAPH_JAR` otherwise — see the profile SKILL.md for per-role usage
 
+Do **not** pass `team_name` (deprecated and ignored — the session's implicit team is the only team there is) and do **not** pass `mode` (deprecated and ignored — subagents inherit this session's permission mode). Because `mode: "acceptEdits"` no longer has any effect, the TARGET_DIR-scoped permission grant from `develop` Step 3a is what keeps the run from prompting on every agent write; if the user declined that grant, tell them up front that each agent's edits will prompt.
+
+Names outlive the turn that created them: a `SendMessage` to a name whose agent has already finished its turn **resumes** that agent from its transcript — that is the normal way a teammate is re-engaged, not an error. Spawning a new agent under a name an earlier agent held makes the new one authoritative (latest wins), which is what makes regeneration clean.
+
 Always read the role file with `Read` before spawning — do not guess or paraphrase role content.
 
-## Team regeneration — always tear down completely first
+## Stopping teammates — what teardown actually means
 
-Any time an issue forces you to regenerate the team — a dead/unrecoverable agent (see *Liveness protocol*), a desynced or corrupted team, crossed inboxes that won't clear, or any situation where re-spawning a single role is not enough — you MUST tear the **entire** team down before recreating it. Never re-spawn one role into a half-broken team: partial regeneration leaves stale teammates, orphaned tasks, and crossed inboxes — the exact silent-stall failure mode this protocol exists to prevent. A clean slate is mandatory.
+`TaskStop` only acts on an agent that is **still running**. An agent that has finished its turn is already inert, and `TaskStop` on it returns an error, not a success:
 
-**Full teardown + recreate routine:**
+- `Task <name> is not running (status: completed)` — it just finished.
+- `No task found with ID: <name>` — it finished a while ago and has dropped off the task list.
 
-1. **Tear down completely.** Send `shutdown_request` to **every** active teammate (analyst, challenger, developer, qa — whichever currently exist) and wait for them to drain. Then call `TeamDelete` to remove the runtime team `<TEAM_NAME>`; this clears all teammate state and the task list.
-2. **Recreate the team.** `TeamCreate` with `team_name: <TEAM_NAME>` (the same name `develop` passed you — including any `-uc-<N>` suffix), then recreate the three tasks with the same dependencies as `develop` Step 4 (Task 1 *Analysis & Challenge* unblocked; Task 2 *Implementation* blocked by 1; Task 3 *Testing* blocked by 2).
+**Both of these mean "already stopped". They are the expected outcome, not a failure** — do not retry them, do not report them to the user as errors, and do not treat them as a reason to regenerate the team. In a healthy run every teammate has finished its turn by the time you tear down, so the normal case is that `TaskStop` has nothing to do at all.
+
+So teardown is: call `ListAgents`, then `TaskStop` **only** the teammates it shows as still running or busy. Skip the rest.
+
+One thing to be careful about: a finished agent is dormant, not gone — sending to its name would resume it from its transcript. "Torn down" therefore means *stop the running ones and send to none of them again*. When you are regenerating rather than finishing, spawning a fresh agent over the same name is what actually retires the dormant one (latest wins).
+
+## Agent regeneration — always tear down completely first
+
+Any time an issue forces you to regenerate the team — a dead/unrecoverable agent (see *Liveness protocol*), a desynced set of teammates, crossed inboxes that won't clear, or any situation where re-spawning a single role is not enough — you MUST stop **every** teammate before spawning replacements. Never re-spawn one role into a half-broken team: partial regeneration leaves stale teammates and crossed inboxes — the exact silent-stall failure mode this protocol exists to prevent. A clean slate is mandatory.
+
+**Full teardown + re-spawn routine:**
+
+1. **Tear down completely.** Call `ListAgents`, then `TaskStop` every teammate it shows as still running — including the ones that look healthy, since a survivor holding a stale conversation is exactly the crossed-inbox failure this routine exists to clear. Teammates that have already finished need no `TaskStop` (see § "Stopping teammates"); they are retired by the re-spawn in step 2, which takes their name. From this point on, send to none of the old agents.
+2. **Nothing to re-create but the agents.** There is no team object and no task list to rebuild — the session's implicit team is unaffected by any of this. Re-spawn the roles you need under the same names; the new agent supersedes the stopped one (latest wins).
 3. **Re-spawn from the interrupted phase**, not blindly from Phase 1:
    - **Phase 1** → re-spawn fresh `analyst` + `challenger`, restart the peer loop from scratch with the same `USE_CASE_FILE` / task description. Discard any partial proposal. The 6-round peer cap resets.
    - **Phase 2** → re-spawn a fresh `developer` pointed at the same `PLAN_FILE` (the approved plan is already persisted there) and a one-line note that this is a restart after a team regeneration. The 6-round developer cap resets.
    - **Phase 3** → re-spawn a fresh `qa` pointed at the same `PLAN_FILE` and the developer change summary. The 6-round QA cap resets.
 
-Count regenerations per role across the run. On the **second** forced regeneration of the same role, do not regenerate again — stop, set the ledger row to `blocked`, run step 1 (full teardown), and escalate to the user.
+Count regenerations per role across the run. On the **second** forced regeneration of the same role, do not regenerate again — stop, set the ledger row to `blocked`, run step 1 (stop every teammate), and escalate to the user.
 
-## Liveness protocol — idle nudge and restart
+## Liveness protocol — nudge and restart
 
-Spawned agents can go idle silently after receiving a message they should have acted on (an observed wake-up failure mode). To protect the run from indefinite stalls, apply this protocol to **every** spawned agent across all phases — Phase 1 peer loop (analyst, challenger), Phase 2 developer loop, Phase 3 QA loop.
+A spawned agent can finish its turn without producing the output you were waiting for, or stall part-way through one. Apply this protocol to **every** spawned agent across all phases — Phase 1 peer loop (analyst, challenger), Phase 2 developer loop, Phase 3 QA loop.
 
-You measure time using the wall-clock timestamps on the `idle_notification` messages that the harness routes to your inbox. Do not run `sleep` commands to gate this — messages and idle notifications arrive asynchronously, so you can do other work and react when notifications land.
+Two signals tell you where things stand. Do not gate either on `sleep`; both arrive asynchronously, so do other work and react when they land.
 
-For every message you send that requires a substantive reply (initial proposal hand-off, revision request, bug report, fix-back, etc.):
+- A **task notification** reaches you when a subagent finishes its turn. If it finished and you never received the expected `SendMessage`, that is a missed hand-off, not progress.
+- **`ListAgents`** shows who is live and whether each is busy or idle right now. Use it when a notification is ambiguous — never poll it in a loop.
 
-1. **Within 5 minutes of message delivery** the agent should produce a substantive response — a `SendMessage` carrying the expected content (proposal, verdict, changes summary, test summary, fix summary). An `idle_notification` alone does NOT count as a substantive reply.
-2. **At the 5-minute mark with no substantive reply**: send a **nudge** to the agent via `SendMessage`. Phrase it as a direct prod, name the message they should be acting on (timestamp it if useful), and ask them to proceed. Reset the 5-minute window from the moment the nudge is delivered.
-3. **At the 10-minute mark (5 minutes after the nudge) still no substantive reply**: declare the agent **dead** and recover by running the **full teardown + recreate routine** (see *Team regeneration — always tear down completely first*), resuming from the phase that was interrupted (Phase 1 → re-spawn analyst + challenger; Phase 2 → re-spawn developer; Phase 3 → re-spawn qa). Do **not** surgically re-spawn just the dead role into the surviving team — tear the **whole** team down first, then recreate it. The 6-round cap for the resumed phase resets.
-4. If a forced regeneration recurs **twice in the same run** for the same role, stop. Set the ledger row to `blocked`, run the full teardown (`shutdown_request` to every active teammate, then `TeamDelete`), and escalate to the user — repeated liveness failure points at a systemic issue, not a flake.
+**Expected, not a stall:** the challenger's very first turn ends immediately with no work done, by design — its role file tells it to wait for the analyst's proposal. A turn ending does not end the agent; the next `SendMessage` to its name resumes it from its transcript.
 
-This protocol applies to all `SendMessage` exchanges. Spawn-time hand-offs count too — the moment you spawn an agent and assign their initial task, the 5/10-minute clock starts on whatever first substantive action you expect from them (typically the analyst's initial proposal or the developer's change summary).
+For every message you send that requires a substantive reply (initial proposal hand-off, revision request, bug report, fix-back, checkpoint reply):
+
+1. The agent should answer with a `SendMessage` carrying the expected content — proposal, verdict, changes summary, test summary, fix summary. A completion notification on its own is NOT a substantive reply.
+2. **First miss** — the agent's turn ended, or `ListAgents` reports it idle, without the expected content: send a **nudge** to the same name via `SendMessage`. Phrase it as a direct prod, name the message they should be acting on, and ask them to proceed. The send resumes them from their transcript, so this is cheap, and it is the normal recovery.
+3. **Second miss after the nudge**: declare the agent **dead** and recover by running the **full teardown + re-spawn routine** (see *Agent regeneration — always tear down completely first*), resuming from the phase that was interrupted (Phase 1 → re-spawn analyst + challenger; Phase 2 → re-spawn developer; Phase 3 → re-spawn qa). Do **not** surgically re-spawn just the dead role — stop every teammate first. The 6-round cap for the resumed phase resets.
+4. If a forced regeneration recurs **twice in the same run** for the same role, stop. Set the ledger row to `blocked`, tear down (§ "Stopping teammates"), and escalate to the user — repeated liveness failure points at a systemic issue, not a flake.
+
+This protocol applies to all `SendMessage` exchanges. Spawn-time hand-offs count too — the moment you spawn an agent, you are waiting on whatever first substantive action you expect from them (typically the analyst's initial proposal or the developer's change summary).
 
 ## Ledger updates (when `USE_CASE_FILE` is set)
 
@@ -93,7 +118,7 @@ If `USE_CASE_FILE` is `null`, skip all ledger work — there is nothing to track
    ---
    plan_for: <relative path from TARGET_DIR to USE_CASE_FILE, or "(free-form task)">
    work_branch: <WORK_BRANCH>
-   team: <TEAM_NAME>
+   run: <RUN_LABEL>
    approved: <YYYY-MM-DD>
    ---
 
@@ -113,10 +138,10 @@ The analyst and challenger iterate directly with each other. You spawn both, the
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/analyst.md` and `<SESSION_DIR>/.claude/teams/dev-team/challenger.md`.
 1a. If `USE_CASE_FILE` is set, update its ledger row to `in-progress` (see *Ledger updates* above) **before** spawning.
 2. In a single message, spawn both agents in parallel:
-   - `analyst` — instructed to send its initial proposal to `challenger` via `SendMessage`, not to the team lead.
+   - `analyst` — instructed to send its initial proposal to `challenger` via `SendMessage`, not to you.
    - `challenger` — instructed to wait for the analyst's proposal before doing anything.
-3. Assign Task 1 to `analyst` via `TaskUpdate`.
-4. Wait for the challenger to send the **final approved** proposal to the team lead. Do not relay intermediate messages between them — they communicate peer-to-peer.
+3. Track the phase yourself — there is no shared task list. Hold in mind which phase is active (1 → 2 → 3) and which message you are waiting on; the phases are strictly sequential.
+4. Wait for the challenger to send the **final approved** proposal to you (`main`). Do not relay intermediate messages between them — they communicate peer-to-peer.
 4a. **Persist the approved proposal to `PLAN_FILE`** before the plan preview, following § "Implementation plan artifact" (write step). This is the source of truth the developer and QA will read.
 5. If the peer loop exceeds **6 rounds** without resolution, the challenger will escalate to you. Stop, summarize the disagreement to the user, and ask them to decide.
 
@@ -157,7 +182,7 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/developer.md`.
 2. Spawn `developer` via the Agent tool with the role file, the task, `TARGET_DIR`, and `PLAN_FILE` (the path to the persisted approved plan — instruct the developer to read it; do not paste its contents).
-3. Assign Task 2 to `developer` via `TaskUpdate`.
+3. Start the liveness clock on the developer's first change summary or checkpoint request (see *Liveness protocol*).
 4. Feedback loop (cap **6 rounds**):
    - If the developer reports the proposal is infeasible, forward the issue to `analyst` via `SendMessage`, wait for a revised proposal, then forward the revision to `developer`.
    - If the loop exceeds 6 rounds, stop and report to the user.
@@ -167,7 +192,7 @@ Hold `WORK_BRANCH` in mind for the Completion phase. Do not switch branches duri
 
 1. `Read` `<SESSION_DIR>/.claude/teams/dev-team/qa.md`.
 2. Spawn `qa` via the Agent tool with the role file, the task, `TARGET_DIR`, `PLAN_FILE` (the persisted approved plan — instruct QA to read it), and a summary of the developer's changes.
-3. Assign Task 3 to `qa` via `TaskUpdate`.
+3. Start the liveness clock on QA's first test summary or checkpoint request (see *Liveness protocol*).
 4. Feedback loop (cap **6 rounds**):
    - If QA reports bugs, forward them to `developer` via `SendMessage`, wait for fixes, then forward the fix summary to `qa`.
    - If the loop exceeds 6 rounds, stop and report to the user.
@@ -223,10 +248,9 @@ If the user gave an explicit directive at run-start ("commit as you go", "no int
    - What was tested
    - The branch name and PR URL (if applicable)
    - Any unresolved concerns or follow-ups
-4. Send `shutdown_request` to every active teammate.
-5. Call `TeamDelete` to remove the runtime team. `TeamDelete` uses the current session's team context — no `team_name` argument is required. The template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is unaffected.
+4. Tear the team down per § "Stopping teammates": `ListAgents`, then `TaskStop` only the teammates still running. On a run that finished cleanly this is usually a no-op, because every teammate has already completed its turn — that is success, not a problem to report. There is no team to delete: the session's implicit team goes away with the session, and the template folder at `<SESSION_DIR>/.claude/teams/dev-team/` is untouched.
 
-If the run ends in any non-success state (6-round cap on any loop, user abort, unrecoverable error), update the ledger row to `blocked` with today's date, then still send `shutdown_request` and call `TeamDelete`. Do not leave the row stuck on `in-progress`. Do not push or open a PR for a blocked run — the work is incomplete by definition.
+If the run ends in any non-success state (6-round cap on any loop, user abort, unrecoverable error), update the ledger row to `blocked` with today's date, then still run the same teardown — there the `TaskStop` calls usually *do* have work to do, since an agent is typically still mid-turn. Do not leave the row stuck on `in-progress`. Do not push or open a PR for a blocked run — the work is incomplete by definition.
 
 ## Orchestrator rules
 

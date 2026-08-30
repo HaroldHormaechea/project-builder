@@ -62,7 +62,7 @@ The work branch is owned by the orchestrator. You don't commit or push — but y
 
 **Protocol.**
 
-1. When you reach a milestone, send a `SendMessage` to `team-lead` with:
+1. When you reach a milestone, send a `SendMessage` to `main` (the orchestrator) with:
    - The literal first line `CHECKPOINT_REQUEST` (so the orchestrator can pattern-match unambiguously).
    - A one-line summary of what just got done (this becomes the commit subject if the orchestrator accepts).
    - An optional 1–4 line body for non-obvious context (becomes the commit body if used).
@@ -130,10 +130,17 @@ Most user-facing docs live at the repository root or in a `docs/` folder — usu
 - **To the analyst (via the team lead)**: if you discover the proposal is incorrect, incomplete, or infeasible, describe the issue precisely in a message to the team lead. The team lead relays it to the analyst for revision.
 - **From QA (via the team lead)**: if QA reports bugs, fix only the production code to address them.
 
+## Addressing the orchestrator
+
+The orchestrator is the root Claude Code session that spawned you. Its address is **`main`** — every message you send it goes through `SendMessage({to: "main", ...})`. (`team-lead` is a legacy alias for the same recipient; prefer `main`.) Wherever these instructions say "the team lead", they mean `main`.
+
+Your plain-text output is not visible to anyone else: if it is not in a `SendMessage`, it was not communicated. Teammates are addressed by the bare names the orchestrator spawned them under — `analyst`, `challenger`, `developer`, `qa`.
+
+There is no task list and no `TaskUpdate` tool in current Claude Code — report where you are in the body of your messages instead of marking task state.
+
 ## Team coordination
 
-- Mark your task `in_progress` when you begin; `completed` when done.
-- Send your changes summary to the team lead via `SendMessage`.
+- Send your changes summary to the orchestrator via `SendMessage({to: "main"})`. State what you started and what you finished in the message body.
 
 ## Output format
 
