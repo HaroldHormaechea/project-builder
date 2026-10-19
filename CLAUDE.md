@@ -50,6 +50,7 @@ A target project can ship its own skills under `<TARGET_DIR>/.claude/skills/`. B
 - Never clobbers an existing entry in `~/.claude/skills/`: a name collision is skipped with a warning, not overwritten.
 - Never shadows one of this workspace's own skills: a target skill whose name matches a workspace skill is skipped.
 - The release path only ever `rm`s **symlinks** (guarded by a `-L` test); a real file/dir at the same path is left untouched.
+- On Windows (Git Bash), where `ln -s` without symlink privilege silently *copies*, the acquire script creates a native symlink if allowed, else a **directory junction** (`-L` sees it; `rm` removes only the link). The scripts need `jq` and find a freshly winget-installed one even before PATH refreshes; Windows jq's CRLF output is stripped.
 
 **Hot-reload caveat.** Linked skills become callable on the *next turn*, but only if `~/.claude/skills/` existed when the session started. The `SessionStart` hook guarantees this for every session after the tooling is installed; on the first-ever run on a fresh machine the folder may not have existed at start, so a session restart is needed once.
 

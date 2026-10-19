@@ -30,6 +30,36 @@ SESSION_ID="${CLAUDE_CODE_SESSION_ID:-unknown-$(date +%s)}"
 
 die() { printf 'acquire-project-skills: %s\n' "$*" >&2; exit 1; }
 
+# jq: a freshly winget-installed jq is only on PATH for processes started after the install, so
+# fall back to its package folder. Checked BEFORE linking so a missing jq never leaves links that
+# the ledger (and therefore the SessionEnd cleanup) does not know about.
+if ! command -v jq >/dev/null 2>&1 && [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1; then
+  for d in "$(cygpath -u "$LOCALAPPDATA")"/Microsoft/WinGet/Packages/jqlang.jq_*; do
+    [ -x "$d/jq.exe" ] && PATH="$PATH:$d" && break
+  done
+fi
+command -v jq >/dev/null 2>&1 || die "jq is required (winget install jqlang.jq | apt install jq | brew install jq)"
+
+# Windows jq writes CRLF; strip it so paths / ids read back from the ledger match exactly.
+jq() { command jq "$@" | tr -d '\r'; }
+
+# make_link <src_dir> <dest>: a link that `[ -L ]` recognises and `rm` removes without touching the
+# target. On Windows (Git Bash / MSYS / Cygwin) a plain `ln -s` without symlink privilege silently
+# COPIES the directory — a copy goes stale and is never released (the release path only removes
+# links) — so try a native symlink, then fall back to a directory junction (no privilege needed).
+make_link() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      MSYS=winsymlinks:nativestrict CYGWIN=winsymlinks:nativestrict \
+        ln -s -- "$1" "$2" 2>/dev/null && return 0
+      powershell.exe -NoProfile -NonInteractive -Command \
+        "New-Item -ItemType Junction -Path '$(cygpath -w "$2")' -Target '$(cygpath -w "$1")' | Out-Null" \
+        >/dev/null 2>&1 || return 1
+      [ -L "$2" ] ;;
+    *) ln -s -- "$1" "$2" ;;
+  esac
+}
+
 # --- validate target ---------------------------------------------------------
 [ "$#" -eq 1 ] || die "usage: acquire-project-skills.sh <TARGET_DIR>"
 RAW_TARGET="$1"
@@ -97,7 +127,7 @@ for skill_md in "$SRC_SKILLS_DIR"/*/SKILL.md; do
     continue
   fi
 
-  ln -s -- "$src_dir" "$dest"
+  make_link "$src_dir" "$dest" || die "could not link $dest -> $src_dir"
   linked+=("$dest"); linked_names+=("$name")
 done
 shopt -u nullglob

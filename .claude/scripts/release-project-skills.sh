@@ -30,6 +30,17 @@ LEDGER="$SESSION_DIR/acquired-project-skills.json"
 
 log() { printf 'release-project-skills: %s\n' "$*" >&2; }
 
+# jq: a freshly winget-installed jq is only on PATH for processes started after the install (this
+# runs from session hooks, whose PATH is the session's), so fall back to its package folder.
+if ! command -v jq >/dev/null 2>&1 && [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1; then
+  for d in "$(cygpath -u "$LOCALAPPDATA")"/Microsoft/WinGet/Packages/jqlang.jq_*; do
+    [ -x "$d/jq.exe" ] && PATH="$PATH:$d" && break
+  done
+fi
+
+# Windows jq writes CRLF; strip it so paths / ids read back from the ledger match exactly.
+jq() { command jq "$@" | tr -d '\r'; }
+
 MODE="session"
 SESSION_ID=""
 case "${1:-}" in
@@ -77,7 +88,9 @@ fi
 if [ -f "$LEDGER" ]; then
   keep="$(jq -r '.["acquired-project-skills"][].skills[]' "$LEDGER" 2>/dev/null \
           | sort -u \
-          | while IFS= read -r p; do [ -n "$p" ] && { [ -e "$p" ] || [ -L "$p" ]; } && printf '%s\n' "$p"; done \
+          | while IFS= read -r p; do
+              if [ -n "$p" ] && { [ -e "$p" ] || [ -L "$p" ]; }; then printf '%s\n' "$p"; fi
+            done \
           | jq -R . | jq -s .)"
   tmp="$(mktemp "${LEDGER}.XXXXXX")"
   jq --argjson keep "${keep:-[]}" '
